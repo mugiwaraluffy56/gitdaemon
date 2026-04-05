@@ -11,8 +11,10 @@ use crate::daemon::ipc::{IpcCommand, IpcResponse};
 use crate::git::commit::{commit_if_ready, CommitAccumulator};
 use crate::git::fetch::fetch_all_remotes;
 use crate::git::push::PushQueue;
+use crate::git::squash::squash_last;
 use crate::git::stage::stage_changes;
 use crate::git::sync::sync_base_branch;
+use crate::git::undo::undo_last;
 use crate::git::GitRepo;
 use crate::status::StatusSnapshot;
 use crate::watcher::{ChangeWatcher, FileEvent};
@@ -182,9 +184,18 @@ pub async fn run(ctx: DaemonContext) -> anyhow::Result<()> {
                         Ok(_) => {} // nothing moved, no-op
                         Err(e) => {
                             warn!(error = %e, "base sync failed");
-                            push_error(&mut recent_errors, format!("base sync: {}", e));
+                            let err_str = e.to_string();
+                            push_error(&mut recent_errors, format!("base sync: {}", err_str));
                             // Pause push on rebase conflict so user notices
                             push_queue.pause();
+                            run_notification_hook(
+                                &config.hooks.on_conflict,
+                                &[
+                                    ("FG_BRANCH", &config.push.branch),
+                                    ("FG_ERROR", &err_str),
+                                ],
+                            )
+                            .await;
                         }
                     }
                 }
@@ -230,6 +241,14 @@ async fn do_push(
     match push_queue.try_push(config).await {
         Ok(Some(result)) if result.success => {
             info!(commits = result.pushed_commits, "pushed");
+            run_notification_hook(
+                &config.hooks.on_push_success,
+                &[
+                    ("FG_BRANCH", &config.push.branch),
+                    ("FG_COMMITS", &result.pushed_commits.to_string()),
+                ],
+            )
+            .await;
         }
         Ok(Some(result)) => {
             if result.blocked_by_secrets {
@@ -248,6 +267,26 @@ async fn do_push(
             warn!(error = %e, "push error");
             push_error(recent_errors, e.to_string());
         }
+    }
+}
+
+/// Fire a notification hook with provided env vars. Non-fatal: errors are only logged.
+async fn run_notification_hook(hook: &str, env: &[(&str, &str)]) {
+    if hook.trim().is_empty() {
+        return;
+    }
+    let mut cmd = tokio::process::Command::new("sh");
+    cmd.arg("-c").arg(hook);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    match cmd.output().await {
+        Ok(out) if !out.status.success() => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            debug!(hook = hook, stderr = %stderr.trim(), "notification hook exited non-zero");
+        }
+        Err(e) => debug!(hook = hook, error = %e, "notification hook failed to spawn"),
+        _ => {}
     }
 }
 
@@ -310,7 +349,45 @@ async fn handle_ipc(
             IpcResponse::Ok {
                 message: "shutting down".to_string(),
             }
-            // The shutdown will be handled separately by the caller sending to shutdown_tx
+        }
+
+        IpcCommand::Undo { count, force } => {
+            let root = git_repo.path().to_path_buf();
+            match undo_last(root, count, force).await {
+                Ok(undone) if undone.is_empty() => IpcResponse::Ok {
+                    message: "nothing to undo".to_string(),
+                },
+                Ok(undone) => {
+                    info!(count = undone.len(), "undone auto-commits");
+                    let summary = undone
+                        .iter()
+                        .map(|c| format!("  {} {}", &c.oid[..8], c.message.lines().next().unwrap_or("").trim()))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    IpcResponse::Ok {
+                        message: format!("undone {} commit(s):\n{}", undone.len(), summary),
+                    }
+                }
+                Err(e) => IpcResponse::Error { message: e.to_string() },
+            }
+        }
+
+        IpcCommand::Squash { count } => {
+            let root = git_repo.path().to_path_buf();
+            match squash_last(root, count).await {
+                Ok(result) => {
+                    info!(oid = %result.oid, squashed = result.squashed, "squashed");
+                    IpcResponse::Ok {
+                        message: format!(
+                            "squashed {} commits → {}\n  {}",
+                            result.squashed,
+                            &result.oid[..8],
+                            result.message.lines().next().unwrap_or("").trim()
+                        ),
+                    }
+                }
+                Err(e) => IpcResponse::Error { message: e.to_string() },
+            }
         }
     };
 

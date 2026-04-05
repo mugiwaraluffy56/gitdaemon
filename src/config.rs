@@ -69,6 +69,10 @@ pub struct CommitConfig {
     pub message: String,
     #[serde(default = "default_change_threshold")]
     pub change_threshold: usize,
+    /// When `true`, files from different top-level directories are committed
+    /// separately (e.g. one commit for `src/git/` changes, one for `src/daemon/`).
+    #[serde(default)]
+    pub group_by_directory: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,6 +95,10 @@ pub struct PushConfig {
     pub interval: u64,
     #[serde(default = "default_branch")]
     pub branch: String,
+    /// Branches that fg must never auto-push to. Pushing to any of these
+    /// requires an explicit `fg push` with the daemon paused.
+    #[serde(default = "default_protected_branches")]
+    pub protected_branches: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +115,14 @@ pub struct HooksConfig {
     pub pre_commit: String,
     #[serde(default)]
     pub post_commit: String,
+    /// Shell command run after a successful push (non-zero exit is logged, not fatal).
+    /// Environment: `$FG_BRANCH`, `$FG_COMMITS` (count pushed).
+    #[serde(default)]
+    pub on_push_success: String,
+    /// Shell command run when a conflict or rebase failure is detected.
+    /// Environment: `$FG_BRANCH`, `$FG_ERROR`.
+    #[serde(default)]
+    pub on_conflict: String,
 }
 
 // ============================================================================
@@ -145,6 +161,10 @@ fn default_base_branch() -> String {
     "main".to_string()
 }
 
+fn default_protected_branches() -> Vec<String> {
+    vec!["main".to_string(), "master".to_string(), "develop".to_string()]
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -179,6 +199,7 @@ impl Default for CommitConfig {
             interval: default_commit_interval(),
             message: default_commit_message(),
             change_threshold: default_change_threshold(),
+            group_by_directory: false,
         }
     }
 }
@@ -189,6 +210,7 @@ impl Default for PushConfig {
             strategy: PushStrategy::Batch,
             interval: default_push_interval(),
             branch: default_branch(),
+            protected_branches: default_protected_branches(),
         }
     }
 }
@@ -207,6 +229,8 @@ impl Default for HooksConfig {
         Self {
             pre_commit: String::new(),
             post_commit: String::new(),
+            on_push_success: String::new(),
+            on_conflict: String::new(),
         }
     }
 }
@@ -325,6 +349,11 @@ push:
   interval: 300
   # Branch to push
   branch: main
+  # Branches that fg must never auto-push to (use `fg push` to push manually)
+  protected_branches:
+    - main
+    - master
+    - develop
 
 # Patterns to exclude from staging (gitignore-style)
 ignore:
@@ -343,6 +372,10 @@ hooks:
   pre_commit: ""
   # Shell command run after each commit (non-zero exit is logged, not fatal)
   post_commit: ""
+  # Shell command run after a successful push ($FG_BRANCH, $FG_COMMITS available)
+  on_push_success: ""
+  # Shell command run when a conflict is detected ($FG_BRANCH, $FG_ERROR available)
+  on_conflict: ""
 "#
         .to_string()
     }

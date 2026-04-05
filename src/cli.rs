@@ -6,10 +6,10 @@ use std::path::PathBuf;
 /// fastgit — declarative background Git sync engine.
 #[derive(Parser, Debug)]
 #[command(
-    name = "fg",
+    name = "gd",
     version,
     about = "Declarative background Git sync engine",
-    long_about = "fg keeps your repos continuously in sync — fetching, staging, committing,\nand pushing without interrupting your flow."
+    long_about = "gd keeps your repos continuously in sync — fetching, staging, committing,\nand pushing without interrupting your flow."
 )]
 pub struct Cli {
     /// Path to the repository root (defaults to the current directory).
@@ -50,6 +50,32 @@ pub enum Command {
 
     /// Create a default fg.yml in the current repository.
     Init(InitArgs),
+
+    /// Undo the last N auto-commits (soft reset back to index).
+    Undo(UndoArgs),
+
+    /// Squash the last N auto-commits into one clean commit.
+    Squash(SquashArgs),
+
+    /// List files being tracked / watched by the daemon.
+    Ls,
+}
+
+#[derive(Parser, Debug)]
+pub struct UndoArgs {
+    /// Number of commits to undo (default: 1).
+    #[arg(default_value = "1")]
+    pub count: usize,
+
+    /// Undo even if the commit doesn't look like an fg auto-commit.
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct SquashArgs {
+    /// Number of recent commits to squash together.
+    pub count: usize,
 }
 
 #[derive(Parser, Debug)]
@@ -68,6 +94,14 @@ pub struct LogArgs {
     /// Number of commits to show.
     #[arg(short = 'n', long, default_value = "10")]
     pub count: usize,
+
+    /// Follow mode: watch for new auto-commits in real time (like `tail -f`).
+    #[arg(short = 'f', long)]
+    pub follow: bool,
+
+    /// Show all commits, not just fg auto-commits.
+    #[arg(long)]
+    pub all: bool,
 }
 
 #[derive(Parser, Debug)]

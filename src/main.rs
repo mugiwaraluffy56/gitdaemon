@@ -50,7 +50,7 @@ fn run(cli: Cli) -> i32 {
         // ── Inspection ───────────────────────────────────────────────────────
         Command::Status => cmd_status(&repo_root),
 
-        Command::Log(args) => cmd_log(&repo_root, args.count),
+        Command::Log(args) => cmd_log(&repo_root, &args),
 
         // ── Control ──────────────────────────────────────────────────────────
         Command::Pause => cmd_ipc_simple(&repo_root, IpcCommand::Pause, "auto-push paused"),
@@ -61,6 +61,26 @@ fn run(cli: Cli) -> i32 {
 
         // ── Init ─────────────────────────────────────────────────────────────
         Command::Init(args) => cmd_init(&repo_root, args.force),
+
+        // ── Undo / Squash ─────────────────────────────────────────────────────
+        Command::Undo(args) => {
+            cmd_ipc_simple(
+                &repo_root,
+                IpcCommand::Undo { count: args.count, force: args.force },
+                "",
+            )
+        }
+
+        Command::Squash(args) => {
+            cmd_ipc_simple(
+                &repo_root,
+                IpcCommand::Squash { count: args.count },
+                "",
+            )
+        }
+
+        // ── Ls ────────────────────────────────────────────────────────────────
+        Command::Ls => cmd_ls(&repo_root),
     }
 }
 
@@ -197,12 +217,20 @@ fn cmd_status(repo_root: &PathBuf) -> i32 {
     }
 }
 
-fn cmd_log(repo_root: &PathBuf, count: usize) -> i32 {
+fn cmd_log(repo_root: &PathBuf, args: &fastgit::cli::LogArgs) -> i32 {
+    if args.follow {
+        return cmd_log_follow(repo_root, args);
+    }
+    print_recent_commits(repo_root, args.count, args.all);
+    0
+}
+
+fn print_recent_commits(repo_root: &PathBuf, count: usize, all: bool) -> usize {
     let repo = match git2::Repository::open(repo_root) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("{} {}", "error:".red().bold(), e);
-            return 1;
+            return 0;
         }
     };
 
@@ -210,7 +238,7 @@ fn cmd_log(repo_root: &PathBuf, count: usize) -> i32 {
         Ok(r) => r,
         Err(e) => {
             eprintln!("{} {}", "error:".red().bold(), e);
-            return 1;
+            return 0;
         }
     };
 
@@ -226,28 +254,123 @@ fn cmd_log(repo_root: &PathBuf, count: usize) -> i32 {
         }
         if let Ok(commit) = repo.find_commit(oid) {
             let summary = commit.summary().unwrap_or("(no message)");
-            // Only show auto-commits created by fg
-            if summary.starts_with("auto:") {
-                let time = commit.time().seconds();
-                let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(time, 0)
-                    .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
-                println!(
-                    "{}  {}  {}",
-                    &oid.to_string()[..8].yellow(),
-                    dt.dimmed(),
-                    summary
-                );
-                shown += 1;
+            let is_fg = is_fg_commit(summary);
+            if !all && !is_fg {
+                continue;
             }
+            let time = commit.time().seconds();
+            let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(time, 0)
+                .map(|t| t.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            let tag = if is_fg { "fg".cyan().bold().to_string() } else { "  ".to_string() };
+            println!(
+                "{} {}  {}  {}",
+                tag,
+                &oid.to_string()[..8].yellow(),
+                dt.dimmed(),
+                summary
+            );
+            shown += 1;
         }
     }
 
-    if shown == 0 {
-        println!("no auto-commits found");
+    if shown == 0 && !all {
+        println!("no auto-commits found (use --all to see all commits)");
     }
 
-    0
+    shown
+}
+
+fn is_fg_commit(summary: &str) -> bool {
+    let s = summary.trim();
+    // conventional commit types fg uses, or legacy auto: prefix
+    let conventional = s.contains(": ")
+        && s.split(':').next().map(|t| {
+            let base = t.trim().split('(').next().unwrap_or(t).trim().trim_end_matches(')');
+            matches!(base, "feat"|"fix"|"refactor"|"chore"|"test"|"docs"|"build"|"ci"|"perf"|"style")
+        }).unwrap_or(false);
+    conventional || s.starts_with("auto:")
+}
+
+/// Follow mode: poll for new commits every 2 seconds and print them as they appear.
+fn cmd_log_follow(repo_root: &PathBuf, args: &fastgit::cli::LogArgs) -> i32 {
+    println!(
+        "{} watching for new commits on {} (Ctrl-C to stop)",
+        "fg log --follow".bold(),
+        repo_root.display().to_string().dimmed()
+    );
+
+    // Print the initial N commits
+    print_recent_commits(repo_root, args.count, args.all);
+    println!("{}", "--- live ---".dimmed());
+
+    // Track the latest HEAD so we only print truly new commits
+    let mut last_head = get_head_oid(repo_root);
+
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        let current_head = get_head_oid(repo_root);
+        if current_head == last_head {
+            continue;
+        }
+
+        // Walk commits between last_head and current_head
+        let repo = match git2::Repository::open(repo_root) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+
+        let mut walk = match repo.revwalk() {
+            Ok(w) => w,
+            Err(_) => continue,
+        };
+
+        if walk.push_head().is_err() {
+            continue;
+        }
+
+        // Collect new commits (stop when we hit last_head)
+        let mut new_commits = Vec::new();
+        for oid_result in walk.flatten() {
+            if Some(oid_result.to_string()) == last_head {
+                break;
+            }
+            if let Ok(commit) = repo.find_commit(oid_result) {
+                new_commits.push(commit);
+            }
+        }
+
+        // Print newest-last (oldest first) for a natural log feel
+        for commit in new_commits.iter().rev() {
+            let oid = commit.id();
+            let summary = commit.summary().unwrap_or("(no message)");
+            let is_fg = is_fg_commit(summary);
+            if !args.all && !is_fg {
+                continue;
+            }
+            let time = commit.time().seconds();
+            let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(time, 0)
+                .map(|t| t.format("%H:%M:%S").to_string())
+                .unwrap_or_else(|| "??:??:??".to_string());
+            let tag = if is_fg { "fg".cyan().bold().to_string() } else { "  ".to_string() };
+            println!(
+                "{} {}  {}  {}",
+                tag,
+                &oid.to_string()[..8].yellow(),
+                dt.dimmed(),
+                summary
+            );
+        }
+
+        last_head = current_head;
+    }
+}
+
+fn get_head_oid(repo_root: &PathBuf) -> Option<String> {
+    let repo = git2::Repository::open(repo_root).ok()?;
+    let head = repo.head().ok()?;
+    head.target().map(|o| o.to_string())
 }
 
 // ============================================================================
@@ -263,8 +386,18 @@ fn cmd_ipc_simple(repo_root: &PathBuf, cmd: IpcCommand, success_msg: &str) -> i3
         .expect("failed to build tokio runtime");
 
     match rt.block_on(send_command(&paths.socket, cmd)) {
-        Ok(IpcResponse::Ok { .. }) | Ok(IpcResponse::Pong) => {
-            println!("{}", success_msg);
+        Ok(IpcResponse::Ok { message }) => {
+            // Use the daemon's response message if we don't have a static one
+            let out = if success_msg.is_empty() { &message } else { success_msg };
+            if !out.is_empty() {
+                println!("{}", out);
+            }
+            0
+        }
+        Ok(IpcResponse::Pong) => {
+            if !success_msg.is_empty() {
+                println!("{}", success_msg);
+            }
             0
         }
         Ok(IpcResponse::Error { message }) => {
@@ -285,6 +418,19 @@ fn cmd_ipc_simple(repo_root: &PathBuf, cmd: IpcCommand, success_msg: &str) -> i3
 // ============================================================================
 // Init
 // ============================================================================
+
+fn cmd_ls(repo_root: &PathBuf) -> i32 {
+    match fastgit::ls::list_tracked_files(repo_root) {
+        Ok(files) => {
+            println!("{}", fastgit::ls::render(&files, repo_root));
+            0
+        }
+        Err(e) => {
+            eprintln!("{} {}", "error:".red().bold(), e);
+            1
+        }
+    }
+}
 
 fn cmd_init(repo_root: &PathBuf, force: bool) -> i32 {
     let config_path = repo_root.join("fg.yml");

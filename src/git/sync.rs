@@ -230,8 +230,80 @@ fn rebase_onto_base(
     drop(repo);
 
     if is_dirty {
-        debug!("working tree has unstaged changes — skipping rebase this cycle");
-        result.skipped_dirty = true;
+        // Auto-stash: save the dirty working tree, rebase, then pop the stash
+        debug!("working tree dirty — attempting auto-stash before rebase");
+
+        let stash_out = std::process::Command::new("git")
+            .current_dir(repo_root)
+            .args(["stash", "push", "--include-untracked", "-m", "fg: auto-stash before rebase"])
+            .output()
+            .context("failed to spawn `git stash push`")?;
+
+        if !stash_out.status.success() {
+            let stderr = String::from_utf8_lossy(&stash_out.stderr);
+            warn!(error = %stderr.trim(), "auto-stash failed — skipping rebase");
+            result.skipped_dirty = true;
+            return Ok(());
+        }
+
+        // Nothing was actually stashed (e.g. empty repo)
+        let stdout = String::from_utf8_lossy(&stash_out.stdout);
+        let stashed = !stdout.contains("No local changes to save");
+
+        // Run the rebase
+        let rebase_out = std::process::Command::new("git")
+            .current_dir(repo_root)
+            .args(["rebase", base_branch])
+            .output()
+            .context("failed to spawn `git rebase`")?;
+
+        if !rebase_out.status.success() {
+            let stderr = String::from_utf8_lossy(&rebase_out.stderr);
+            warn!(onto = %base_branch, error = %stderr.trim(), "rebase conflict after auto-stash — aborting");
+            std::process::Command::new("git")
+                .current_dir(repo_root)
+                .args(["rebase", "--abort"])
+                .output()
+                .ok();
+
+            // Restore the stash so the user gets their work back
+            if stashed {
+                std::process::Command::new("git")
+                    .current_dir(repo_root)
+                    .args(["stash", "pop"])
+                    .output()
+                    .ok();
+            }
+
+            result.conflict = true;
+            return Err(anyhow::anyhow!(
+                "rebase onto '{}' had conflicts and was aborted — \
+                 your stash was restored, resolve manually with `git rebase {}`",
+                base_branch,
+                base_branch
+            ));
+        }
+
+        result.rebased = true;
+        info!(onto = %base_branch, "rebased current branch onto updated base (auto-stash)");
+
+        // Pop the stash back
+        if stashed {
+            let pop_out = std::process::Command::new("git")
+                .current_dir(repo_root)
+                .args(["stash", "pop"])
+                .output()
+                .context("failed to spawn `git stash pop`")?;
+
+            if !pop_out.status.success() {
+                let stderr = String::from_utf8_lossy(&pop_out.stderr);
+                warn!(error = %stderr.trim(), "stash pop had conflicts — leaving stash in place");
+                // Non-fatal: the user can `git stash pop` manually
+            } else {
+                debug!("auto-stash popped cleanly");
+            }
+        }
+
         return Ok(());
     }
 

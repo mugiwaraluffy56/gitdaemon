@@ -4,8 +4,10 @@ pub mod commit;
 pub mod fetch;
 pub mod push;
 pub mod secrets;
+pub mod squash;
 pub mod stage;
 pub mod sync;
+pub mod undo;
 
 use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};

@@ -24,6 +24,10 @@ pub enum IpcCommand {
     PushNow,
     Shutdown,
     Ping,
+    /// Soft-reset the last `count` auto-commits back to the index.
+    Undo { count: usize, force: bool },
+    /// Squash the last `count` auto-commits into one clean commit.
+    Squash { count: usize },
 }
 
 /// Responses from the daemon to the CLI.

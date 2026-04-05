@@ -118,6 +118,32 @@ impl PushQueue {
             return Ok(None);
         }
 
+        // Branch-push guard: refuse to auto-push to protected branches
+        let current_branch = {
+            let root = self.repo_root.clone();
+            tokio::task::spawn_blocking(move || {
+                git2::Repository::open(&root)
+                    .ok()
+                    .and_then(|r| {
+                        r.head()
+                            .ok()
+                            .and_then(|h| h.shorthand().map(|s| s.to_string()))
+                    })
+            })
+            .await
+            .unwrap_or(None)
+        };
+        if let Some(ref cb) = current_branch {
+            if cfg.push.protected_branches.iter().any(|p| p == cb) {
+                warn!(
+                    branch = %cb,
+                    "auto-push skipped: '{}' is a protected branch — use `fg push` to push manually",
+                    cb
+                );
+                return Ok(None);
+            }
+        }
+
         // Check if there are commits to push (queued or ahead of remote)
         let branch = cfg.push.branch.clone();
         let repo_root = self.repo_root.clone();

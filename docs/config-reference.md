@@ -22,7 +22,7 @@ Complete reference for every field in `fg.yml`.
 
 ## 1. File location and format
 
-`fg.yml` must live at the **root of the Git repository** being managed. It is created by `fg init` and is YAML 1.1 (parsed by the `serde_yaml` crate).
+`fg.yml` must live at the **root of the Git repository** being managed. It is created by `gd init` and is YAML 1.1 (parsed by the `serde_yaml` crate).
 
 ```
 my-project/
@@ -32,10 +32,10 @@ my-project/
 └── ...
 ```
 
-To use a different path, pass `--config <path>` to `fg up`:
+To use a different path, pass `--config <path>` to `gd up`:
 
 ```sh
-fg up --config /etc/fg/project.yml
+gd up --config /etc/fg/project.yml
 ```
 
 > **Version field is required.** Every `fg.yml` must start with `version: 1`.  
@@ -59,14 +59,28 @@ fg up --config /etc/fg/project.yml
 
 ## 3. `repo` — repository behaviour
 
-Controls how `fg` interacts with the Git working tree at a foundational level.
+Controls how `gd` interacts with the Git working tree at a foundational level.
 
 ```yaml
 repo:
   auto_stage: true
   auto_fetch: true
   fetch_interval: 60
+  auto_sync_base: true
+  base_branch: main
+  rebase_on_sync: true
 ```
+
+All fields and their defaults:
+
+| Field | Type | Default |
+|---|---|---|
+| `auto_stage` | boolean | `true` |
+| `auto_fetch` | boolean | `true` |
+| `fetch_interval` | integer (seconds) | `60` |
+| `auto_sync_base` | boolean | `true` |
+| `base_branch` | string | `"main"` |
+| `rebase_on_sync` | boolean | `true` |
 
 ### `repo.auto_stage`
 
@@ -75,9 +89,9 @@ repo:
 | **Type** | boolean |
 | **Default** | `true` |
 
-When `true`, `fg` calls the equivalent of `git add` on every modified, added, or deleted file each time the filesystem watcher fires. Files matching the `ignore` list or `.gitignore` are skipped. The `.fg/` and `.git/` directories are always excluded.
+When `true`, `gd` calls the equivalent of `git add` on every modified, added, or deleted file each time the filesystem watcher fires. Files matching the `ignore` list or `.gitignore` are skipped. The `.fg/` and `.git/` directories are always excluded.
 
-When `false`, `fg` still auto-commits and auto-pushes — but only what is **already staged**. You are responsible for staging files yourself (`git add`).
+When `false`, `gd` still auto-commits and auto-pushes — but only what is **already staged**. You are responsible for staging files yourself (`git add`).
 
 ```yaml
 # Manual staging workflow
@@ -92,9 +106,9 @@ repo:
 | **Type** | boolean |
 | **Default** | `true` |
 
-When `true`, `fg` periodically fetches from all configured remotes. This updates remote-tracking refs (`origin/main`, etc.) without merging or rebasing. After each fetch, `fg` checks for divergence and pauses push if the remote has advanced ahead.
+When `true`, `gd` periodically fetches from all configured remotes. This updates remote-tracking refs (`origin/main`, etc.) without merging or rebasing. After each fetch, `gd` checks for divergence and pauses push if the remote has advanced ahead.
 
-When `false`, no background fetch is performed. `fg status` may show stale `behind` counts.
+When `false`, no background fetch is performed. `gd status` may show stale `behind` counts.
 
 ### `repo.fetch_interval`
 
@@ -111,11 +125,73 @@ repo:
   fetch_interval: 300   # fetch every 5 minutes
 ```
 
+### `repo.auto_sync_base`
+
+| | |
+|---|---|
+| **Type** | boolean |
+| **Default** | `true` |
+
+When `true`, after every successful fetch `gd` will:
+1. Fast-forward the local `base_branch` ref to `origin/<base_branch>` — **no checkout**, pure ref update
+2. Rebase the current working branch onto it (if `rebase_on_sync: true` and the working tree is clean)
+
+This keeps your feature branch on a fresh base automatically. You never need to run `git fetch`, `git checkout main`, `git pull`, or `git rebase main` manually.
+
+When `false`, only the regular background fetch runs — no ref updates or rebasing.
+
+### `repo.base_branch`
+
+| | |
+|---|---|
+| **Type** | string |
+| **Default** | `"main"` |
+
+The long-lived branch to fast-forward after each fetch. Must match your repository's primary integration branch name.
+
+```yaml
+repo:
+  base_branch: master   # for older repositories
+```
+
+```yaml
+repo:
+  base_branch: develop  # for gitflow-style repos
+```
+
+### `repo.rebase_on_sync`
+
+| | |
+|---|---|
+| **Type** | boolean |
+| **Default** | `true` |
+
+When `true`, after fast-forwarding `base_branch`, `gd` runs `git rebase <base_branch>` on your current working branch. This is skipped silently when:
+
+| Condition | Behaviour |
+|---|---|
+| Working tree has unsaved edits | Skip this cycle, retry on next fetch tick |
+| Already on `base_branch` | Only fast-forward runs, no rebase needed |
+| Repo in mid-rebase / mid-merge state | Skip until state is clean |
+| `base_branch` did not advance | No-op |
+
+If the rebase produces a **conflict**, `gd` immediately runs `git rebase --abort` to restore a clean working tree, pauses auto-push, and logs an error visible in `gd status`. Resolve the conflict manually, then run `gd resume`.
+
+When `false`, `gd` only fast-forwards the local base branch ref. Your working branch stays where it is — you rebase or merge manually when you're ready.
+
+```yaml
+# Fast-forward main but don't touch the current branch
+repo:
+  auto_sync_base: true
+  base_branch: main
+  rebase_on_sync: false
+```
+
 ---
 
 ## 4. `commit` — auto-commit settings
 
-Controls when and how `fg` creates commits.
+Controls when and how `gd` creates commits.
 
 ```yaml
 commit:
@@ -181,7 +257,7 @@ commit:
 | **Minimum** | `1` |
 | **Used by** | `change_count` strategy only |
 
-The number of staged files that must accumulate before a commit is created. `fg` counts files as they enter the index; once the running total reaches this threshold, it commits immediately.
+The number of staged files that must accumulate before a commit is created. `gd` counts files as they enter the index; once the running total reaches this threshold, it commits immediately.
 
 ```yaml
 commit:
@@ -197,7 +273,7 @@ commit:
 | **Default** | `"{summary}"` |
 | **Must not be** | empty or whitespace-only |
 
-A template for the commit message. `fg` first generates a **conventional commit summary** from the diff (e.g. `feat(git): introduce PushQueue`), then substitutes tokens into this template.
+A template for the commit message. `gd` first generates a **conventional commit summary** from the diff (e.g. `feat(git): introduce PushQueue`), then substitutes tokens into this template.
 
 #### Available tokens
 
@@ -327,7 +403,7 @@ push:
   interval: 60    # push every minute
 ```
 
-If three consecutive push attempts fail, auto-push is **automatically paused** and an error is logged. Use `fg resume` to re-enable it.
+If three consecutive push attempts fail, auto-push is **automatically paused** and an error is logged. Use `gd resume` to re-enable it.
 
 ### `push.branch`
 
@@ -344,13 +420,40 @@ push:
   branch: master    # for older repositories
 ```
 
-> **Note:** `fg` pushes to `origin/<branch>`. Multi-remote setups are not currently configurable — all pushes go to `origin`.
+> **Note:** `gd` pushes to `origin/<branch>`. Multi-remote setups are not currently configurable — all pushes go to `origin`.
+
+### `push.protected_branches`
+
+| | |
+|---|---|
+| **Type** | list of strings |
+| **Default** | `["main", "master", "develop"]` |
+
+Branches that `gd` must **never auto-push to**. When the current working branch is in this list, auto-push is silently skipped. Staging and committing continue normally — only the automatic push is blocked.
+
+Use `gd push` to push to a protected branch manually when you intend to.
+
+```yaml
+push:
+  protected_branches:
+    - main
+    - master
+    - release
+    - production
+```
+
+To disable the guard (allow auto-push to any branch):
+
+```yaml
+push:
+  protected_branches: []
+```
 
 ---
 
 ## 6. `ignore` — staging exclusions
 
-A list of gitignore-style glob patterns. Files matching any pattern are **not staged** by `fg`, even if `auto_stage: true`.
+A list of gitignore-style glob patterns. Files matching any pattern are **not staged** by `gd`, even if `auto_stage: true`.
 
 ```yaml
 ignore:
@@ -379,7 +482,7 @@ Patterns follow `.gitignore` glob conventions:
 
 ### Interaction with `.gitignore`
 
-`fg` respects `.gitignore` independently — files already excluded by `.gitignore` are also not staged, regardless of the `ignore` list here. The `ignore` list is additive: it only adds more exclusions.
+`gd` respects `.gitignore` independently — files already excluded by `.gitignore` are also not staged, regardless of the `ignore` list here. The `ignore` list is additive: it only adds more exclusions.
 
 ### Always-excluded directories
 
@@ -407,9 +510,9 @@ safety:
 | **Type** | boolean |
 | **Default** | `false` |
 
-When `true`, `fg` prompts for confirmation before the **first push** in each daemon session. Subsequent pushes in the same session proceed automatically.
+When `true`, `gd` prompts for confirmation before the **first push** in each daemon session. Subsequent pushes in the same session proceed automatically.
 
-> Currently only meaningful when running `fg up` in the foreground — background daemons cannot prompt interactively.
+> Currently only meaningful when running `gd up` in the foreground — background daemons cannot prompt interactively.
 
 ```yaml
 safety:
@@ -423,7 +526,7 @@ safety:
 | **Type** | boolean |
 | **Default** | `true` |
 
-When `true`, `fg` scans the diff of every push attempt for secret patterns. If any pattern matches a `+` line (added content), the push is **blocked** and an error is logged. The commit remains on your local branch — nothing is rolled back.
+When `true`, `gd` scans the diff of every push attempt for secret patterns. If any pattern matches a `+` line (added content), the push is **blocked** and an error is logged. The commit remains on your local branch — nothing is rolled back.
 
 Detected patterns:
 
@@ -443,7 +546,7 @@ Detected patterns:
 To fix a blocked push:
 1. Scrub or rotate the secret from your working tree
 2. Amend or revert the commit that introduced it (`git commit --amend` or `git revert`)
-3. `fg` will push cleanly on the next push tick, or trigger one with `fg push`
+3. `gd` will push cleanly on the next push tick, or trigger one with `gd push`
 
 To disable (strongly not recommended):
 
@@ -495,6 +598,34 @@ hooks:
 ```
 
 > **Keep pre_commit fast.** It runs before every auto-commit. A hook that takes 30 seconds will significantly delay your commit rhythm. Reserve slow operations (`cargo test`, full test suite) for `post_commit`.
+
+### `hooks.on_push_success`
+
+| | |
+|---|---|
+| **Type** | string (shell command) |
+| **Default** | `""` (disabled) |
+
+Runs **after a successful push**. Environment variables available: `$FG_BRANCH` (branch pushed), `$FG_COMMITS` (number of commits pushed). Exit code is ignored.
+
+```yaml
+hooks:
+  on_push_success: "notify-send 'fg' 'pushed $FG_COMMITS commits on $FG_BRANCH'"
+```
+
+### `hooks.on_conflict`
+
+| | |
+|---|---|
+| **Type** | string (shell command) |
+| **Default** | `""` (disabled) |
+
+Runs when a **rebase conflict or push conflict** is detected. Environment variables: `$FG_BRANCH`, `$FG_ERROR` (error message). Exit code is ignored.
+
+```yaml
+hooks:
+  on_conflict: "osascript -e 'display alert \"fg conflict\" message \"$FG_ERROR\"'"
+```
 
 ### `hooks.post_commit`
 
@@ -549,6 +680,10 @@ repo:
   auto_fetch: true
   # Fetch every 2 minutes
   fetch_interval: 120
+  # Keep main up to date and rebase feature branch onto it automatically
+  auto_sync_base: true
+  base_branch: main
+  rebase_on_sync: true
 
 commit:
   # Commit every 3 minutes if changes are staged
@@ -678,7 +813,7 @@ hooks:
 
 ## 10. Validation rules
 
-`fg` validates `fg.yml` on startup. Any violation causes the daemon to refuse to start.
+`gd` validates `fg.yml` on startup. Any violation causes the daemon to refuse to start.
 
 | Rule | Error message |
 |---|---|
@@ -711,7 +846,7 @@ push:
   branch: main
 ```
 
-Then `fg pause` to stop auto-push entirely. Use `fg push` to push on demand.
+Then `gd pause` to stop auto-push entirely. Use `gd push` to push on demand.
 
 ### Commit message with ticket prefix from environment
 
@@ -757,4 +892,4 @@ hooks:
 
 ---
 
-*For runtime control commands (`fg pause`, `fg resume`, `fg push`, `fg status`), see the [User Guide](user-guide.md).*
+*For runtime control commands (`gd pause`, `gd resume`, `gd push`, `gd status`), see the [User Guide](user-guide.md).*

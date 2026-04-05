@@ -88,17 +88,17 @@ async fn run_hook(repo_root: &Path, command: &str) -> Result<()> {
 
 /// A symbol declaration found on a `+` or `-` diff line.
 #[derive(Debug, Clone)]
-struct DeclaredSymbol {
-    kind: SymbolKind,
-    name: String,
+pub struct DeclaredSymbol {
+    pub kind: SymbolKind,
+    pub name: String,
     /// `true` = appeared on a `+` line (added/changed), `false` = `-` line (removed).
-    added: bool,
+    pub added: bool,
     /// `true` = was explicitly marked public (`pub`, `export`, capital Go name, etc.)
-    public: bool,
+    pub public: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum SymbolKind {
+pub enum SymbolKind {
     /// struct, class, dataclass, record
     Struct,
     /// enum, union
@@ -444,6 +444,19 @@ pub async fn commit_if_ready(
 ///
 /// The result is used as the `{summary}` token inside the config message template.
 /// With the default template of `"{summary}"` this becomes the full commit message.
+/// Public alias for use by `squash.rs` and other callers outside this module.
+pub type DeclaredSymbolPub = DeclaredSymbol;
+
+/// Public entry point into the message generator — used by `squash.rs`.
+pub fn build_summary_pub(deltas: &[(Delta, PathBuf)], symbols: &[DeclaredSymbolPub]) -> String {
+    build_summary(deltas, symbols)
+}
+
+/// Public entry point into the symbol parser — used by `squash.rs`.
+pub fn parse_symbol_pub(line: &str, added: bool) -> Option<DeclaredSymbolPub> {
+    parse_symbol_from_line(line, added)
+}
+
 fn build_summary(deltas: &[(Delta, PathBuf)], symbols: &[DeclaredSymbol]) -> String {
     if deltas.is_empty() {
         return "chore: sync working tree".to_string();
@@ -956,7 +969,7 @@ mod tests {
 
         let hooks = HooksConfig {
             pre_commit: "exit 1".to_string(),
-            post_commit: String::new(),
+            ..HooksConfig::default()
         };
         let result = commit(path, CommitConfig::default(), hooks).await?;
 
@@ -975,8 +988,8 @@ mod tests {
         stage_file(&path, "test.txt", "x\n")?;
 
         let hooks = HooksConfig {
-            pre_commit: String::new(),
             post_commit: "exit 1".to_string(),
+            ..HooksConfig::default()
         };
         let result = commit(path, CommitConfig::default(), hooks).await?;
 
