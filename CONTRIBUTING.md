@@ -1,106 +1,137 @@
 # Contributing to gitdaemon
 
-Thank you for taking the time to contribute! This document explains how to get
-started, what to work on, and how pull requests are reviewed.
+Thank you for your interest in contributing! This document covers how to get
+set up, the coding conventions we follow, and the pull request process.
 
 ---
 
 ## Table of contents
 
-1. [Getting started](#getting-started)
-2. [Development workflow](#development-workflow)
-3. [Code style](#code-style)
-4. [Testing](#testing)
-5. [Commit messages](#commit-messages)
-6. [Opening a pull request](#opening-a-pull-request)
-7. [Reporting bugs](#reporting-bugs)
-8. [Requesting features](#requesting-features)
-9. [Release process](#release-process)
+1. [Getting started](#1-getting-started)
+2. [Development workflow](#2-development-workflow)
+3. [Coding conventions](#3-coding-conventions)
+4. [Testing](#4-testing)
+5. [Submitting a pull request](#5-submitting-a-pull-request)
+6. [Issue reporting](#6-issue-reporting)
+7. [Release process](#7-release-process)
 
 ---
 
-## Getting started
+## 1. Getting started
 
 ### Prerequisites
 
-- Rust 1.75 or later (`rustup update stable`)
-- `libgit2` — bundled via the `git2` crate, no separate install needed
-- Optionally: [`just`](https://github.com/casey/just) task runner, `cargo-watch`
+| Tool | Version | Install |
+|---|---|---|
+| Rust | ≥ 1.75 | `rustup update stable` |
+| just | any | `cargo install just` |
+| git | ≥ 2.38 | system package manager |
 
 ### Fork and clone
 
 ```sh
-git clone https://github.com/mugiwaraluffy56/gitdaemon
+git clone https://github.com/<you>/gitdaemon
 cd gitdaemon
 cargo build
-cargo test
 ```
 
-If all tests pass you are ready to go.
+### Verify everything works
+
+```sh
+just ci          # fmt-check + clippy + test
+cargo test       # all 50+ unit tests
+```
 
 ---
 
-## Development workflow
+## 2. Development workflow
 
 ```sh
-# Run the full check suite quickly (no linking)
-just check
+# Edit code
+$EDITOR src/git/commit.rs
 
-# Start a file-watcher that re-runs check on every save
-cargo watch -x check
-
-# Run tests
-just test
+# Fast type-check (no linking)
+cargo check
 
 # Lint
-just lint
+cargo clippy --all-targets -- -D warnings
 
-# Full CI gate before pushing
-just ci
+# Format
+cargo fmt
+
+# Run all tests
+cargo test
+
+# Run a single test
+cargo test test_commit_creates_commit
+
+# Run the daemon against a local repo
+cargo build && RUST_LOG=debug ./target/debug/gd up
 ```
 
-### Running the daemon locally
+Use `just` for common tasks:
 
 ```sh
-# In a scratch repo
-mkdir /tmp/test-repo && cd /tmp/test-repo
-git init && git remote add origin git@github.com:you/test-repo.git
-
-# Build and init
-cargo build --manifest-path /path/to/gitdaemon/Cargo.toml
-/path/to/gitdaemon/target/debug/gd init
-
-# Run in the foreground with debug logging
-RUST_LOG=debug /path/to/gitdaemon/target/debug/gd up
+just build      # cargo build
+just test       # cargo test
+just lint       # fmt-check + clippy
+just ci         # full gate (lint + test)
+just docs       # cargo doc --no-deps --open
 ```
 
 ---
 
-## Code style
+## 3. Coding conventions
 
-- All code is formatted with `rustfmt` — run `just fmt` before committing.
-- Clippy lints must pass with `-D warnings` — run `just lint`.
-- No `unwrap()` / `expect()` in non-test code — use `?` and `anyhow::Context`.
-- Every error path must be handled and wrapped with `.context("…")`.
-- Async functions go in the `daemon/` or `git/` subtree; pure logic stays synchronous.
-- Keep modules small and focused — the `git/` submodules are good examples.
+### Style
 
-### Module responsibilities
+- **`rustfmt`** is enforced in CI. Run `cargo fmt` before committing.
+- **`clippy`** is enforced at `-D warnings`. Fix all lints before opening a PR.
+- Keep functions short; prefer many small, well-named helpers over long
+  monolithic functions.
+- Avoid `unwrap()` and `expect()` in production paths. Use `?` with `anyhow`
+  context everywhere.
 
-| Module | Rule |
-|---|---|
-| `config.rs` | Standalone — no deps beyond `serde` and standard library |
-| `git/*` | Pure Git operations — no IPC or daemon lifecycle |
-| `daemon/*` | Lifecycle and orchestration only — delegates to `git/` |
-| `cli.rs` | `clap` structs only — no logic |
+### Error handling
+
+We use [`anyhow`](https://docs.rs/anyhow) for application errors and
+[`thiserror`](https://docs.rs/thiserror) for library error types:
+
+```rust
+// Good — wraps errors with context
+let config = Config::load(&path)
+    .with_context(|| format!("failed to load config from {}", path.display()))?;
+
+// Bad — drops context
+let config = Config::load(&path)?;
+```
+
+### Async
+
+- All daemon code is `async` via `tokio`. Prefer `tokio::task::spawn_blocking`
+  for git2 calls (they are synchronous and can block).
+- Do not call `std::thread::sleep` in async code. Use `tokio::time::sleep`.
+
+### Commit messages
+
+Follow the conventional commit spec:
+
+```
+feat(scope): add something new
+fix(scope): correct a bug
+refactor(scope): restructure without behaviour change
+chore: update dependencies
+docs: fix typo in README
+test(scope): add coverage for X
+```
 
 ---
 
-## Testing
+## 4. Testing
 
 ### Unit tests
 
-Each module has `#[cfg(test)] mod tests { … }` inline. Run them with:
+Each module has a `#[cfg(test)] mod tests` block. Run with:
 
 ```sh
 cargo test
@@ -108,101 +139,74 @@ cargo test
 
 ### Integration tests
 
-Integration tests live in `tests/`. They spin up real temporary Git repos using
-`tempfile::TempDir` and exercise the library interface end-to-end without
-starting the background daemon.
-
-When adding a new feature, add at least:
-- One unit test for the core logic
-- One integration test that exercises the feature through the public API
-
-### Benchmarks
-
-Benchmarks live in `benches/` and use Criterion. Run with:
-
 ```sh
-cargo bench
+cargo test --test integration
 ```
 
-Benchmark results are written to `target/criterion/` as HTML reports.
+Integration tests create temporary Git repositories using `tempfile::TempDir`
+and exercise the full commit / push / IPC flow without hitting a real remote.
+
+### Writing tests
+
+- Use `tempfile::TempDir` for temporary repositories; they auto-cleanup on drop.
+- Do **not** mock `git2`. Test against real Git objects — that's where the bugs
+  live.
+- Async tests use `#[tokio::test]`.
 
 ---
 
-## Commit messages
+## 5. Submitting a pull request
 
-This project uses **conventional commits** (which `gd` itself generates):
+1. **Open an issue first** for any non-trivial change so we can discuss the
+   approach before you invest time coding.
+2. Create a branch: `git checkout -b feat/my-change`.
+3. Make your changes with tests.
+4. Ensure `just ci` passes locally.
+5. Open a PR against `main` using the PR template.
+6. One approving review from a maintainer is required to merge.
+
+### PR checklist
+
+- [ ] `just ci` passes (fmt + clippy + tests)
+- [ ] New behaviour has tests
+- [ ] `CHANGELOG.md` updated under `[Unreleased]`
+- [ ] Docs updated if user-facing behaviour changed
+
+---
+
+## 6. Issue reporting
+
+Use the GitHub issue templates:
+
+- **Bug report** — unexpected behaviour, panics, incorrect output
+- **Feature request** — new capability or configuration option
+
+Before opening an issue, search existing ones. Duplicate issues will be closed.
+
+When reporting a bug, always include:
 
 ```
-feat(scope): add short description
-fix(scope): correct short description
-refactor(scope): describe change
-docs: update section heading
-test: add coverage for X
-build: bump dependency Y
+gd --version
+rustc --version
+OS and version
+RUST_LOG=debug gd up 2>&1  (sanitised if needed)
 ```
 
-- `feat` — new feature
-- `fix` — bug fix
-- `refactor` — restructuring without behaviour change
-- `docs` — documentation only
-- `test` — test only
-- `build` — `Cargo.toml`, CI, scripts
-- `chore` — maintenance tasks
+---
 
-Scope is the module name (`git`, `daemon`, `config`, `ipc`, `secrets`, etc.)
+## 7. Release process
+
+Releases are managed by maintainers. The process is:
+
+1. Update `CHANGELOG.md` — move `[Unreleased]` to the new version with today's date.
+2. Bump `version` in `Cargo.toml`.
+3. Open a PR titled `chore: release v0.X.Y`.
+4. After merge, tag: `just tag 0.X.Y`.
+5. The `release.yml` GitHub Actions workflow builds binaries and creates the
+   GitHub Release automatically.
 
 ---
 
-## Opening a pull request
+## Code of Conduct
 
-1. Create a branch from `main`: `git checkout -b feat/my-feature`
-2. Make your changes — keep commits atomic and conventional
-3. Ensure `just ci` passes
-4. Push and open a PR against `main`
-5. Fill in the PR template
-
-PRs are squash-merged. The squash commit message is the PR title, so make sure
-the title follows the conventional-commit format.
-
-### Review checklist
-
-- [ ] `just ci` passes locally
-- [ ] New behaviour is covered by tests
-- [ ] Public API changes are reflected in `docs/`
-- [ ] Breaking changes are noted in the PR description
-
----
-
-## Reporting bugs
-
-Use the [Bug Report](.github/ISSUE_TEMPLATE/bug_report.yml) template. Include:
-
-- `gd --version` output
-- OS and Rust version (`rustc --version`)
-- Steps to reproduce
-- Expected vs. actual behaviour
-- `RUST_LOG=debug gd up` output (redact any secrets)
-
----
-
-## Requesting features
-
-Use the [Feature Request](.github/ISSUE_TEMPLATE/feature_request.yml) template.
-Describe the problem you are trying to solve, not just the solution.
-
----
-
-## Release process
-
-Releases are cut by maintainers:
-
-1. Update `CHANGELOG.md` — add a new `## [x.y.z]` section
-2. Bump `version` in `Cargo.toml`
-3. Open a PR titled `release: x.y.z`
-4. After merge, tag: `git tag vx.y.z && git push origin vx.y.z`
-5. GitHub Actions builds and publishes the release binaries automatically
-
----
-
-By contributing, you agree that your contributions will be licensed under the
-[MIT License](LICENSE).
+By contributing you agree to follow our [Code of Conduct](CODE_OF_CONDUCT.md).

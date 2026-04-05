@@ -1,80 +1,82 @@
-# justfile — project task runner (https://github.com/casey/just)
-# Usage: just <recipe>
+# justfile — task runner for gitdaemon
+# Install: cargo install just
+# Usage:   just <recipe>
 
-default: check
+default:
+    @just --list
 
-# Fast type + borrow check (no linking)
-check:
-    cargo check --all-targets
+# ── Build ──────────────────────────────────────────────────────────────────────
 
-# Build debug binary
 build:
     cargo build
 
-# Build optimised release binary
 release:
     cargo build --release
 
-# Run all tests
+# ── Quality ────────────────────────────────────────────────────────────────────
+
+check:
+    cargo check --all-targets
+
+fmt:
+    cargo fmt --all
+
+fmt-check:
+    cargo fmt --all -- --check
+
+clippy:
+    cargo clippy --all-targets --all-features -- -D warnings
+
+lint: fmt-check clippy
+
+# ── Testing ────────────────────────────────────────────────────────────────────
+
 test:
     cargo test
 
-# Run tests with output visible
 test-verbose:
     cargo test -- --nocapture
 
-# Run a single test by name pattern
-test-one name:
-    cargo test {{name}} -- --nocapture
+test-integration:
+    cargo test --test integration
 
-# Lint with Clippy
-lint:
-    cargo clippy --all-targets -- -D warnings
-
-# Format all source files
-fmt:
-    cargo fmt
-
-# Check formatting without modifying files
-fmt-check:
-    cargo fmt -- --check
-
-# Run benchmarks
 bench:
     cargo bench
 
-# Run security audit
-audit:
-    cargo audit
+# ── Full CI gate ───────────────────────────────────────────────────────────────
 
-# Run cargo-deny (license + advisory checks)
-deny:
-    cargo deny check
+ci: fmt-check clippy test
+    @echo "CI gate passed"
 
-# Full CI gate: format check + lint + test
-ci: fmt-check lint test
+# ── Installation ───────────────────────────────────────────────────────────────
 
-# Install the release binary to ~/.local/bin/
-install: release
-    install -Dm755 target/release/gd ~/.local/bin/gd
-    @echo "installed gd to ~/.local/bin/gd"
+install:
+    cargo install --path . --locked
 
-# Uninstall
-uninstall:
-    rm -f ~/.local/bin/gd
+install-dev:
+    cargo build && cp target/debug/gd ~/.local/bin/gd
 
-# Show binary size breakdown
-size:
-    cargo bloat --release --crates
+# ── Documentation ──────────────────────────────────────────────────────────────
 
-# Watch for changes and re-run check
-watch:
-    cargo watch -x check
+docs:
+    cargo doc --no-deps --open
 
-# Clean build artefacts
+# ── Misc ───────────────────────────────────────────────────────────────────────
+
 clean:
     cargo clean
 
-# Print current gd version
-version:
-    cargo run --quiet -- --version
+deny:
+    cargo deny check
+
+outdated:
+    cargo outdated -R
+
+update:
+    cargo update
+
+# ── Release ────────────────────────────────────────────────────────────────────
+
+tag version:
+    git tag -s "v{{version}}" -m "Release v{{version}}"
+    git push origin "v{{version}}"
