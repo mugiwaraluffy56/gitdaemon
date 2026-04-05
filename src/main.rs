@@ -5,10 +5,10 @@ use clap::Parser;
 use colored::Colorize;
 use tracing_subscriber::EnvFilter;
 
-use fastgit::cli::{Cli, Command};
-use fastgit::config::Config;
-use fastgit::daemon::ipc::{send_command, IpcCommand, IpcResponse};
-use fastgit::daemon::{start_daemon, stop_daemon, DaemonPaths};
+use gitdaemon::cli::{Cli, Command};
+use gitdaemon::config::Config;
+use gitdaemon::daemon::ipc::{send_command, IpcCommand, IpcResponse};
+use gitdaemon::daemon::{start_daemon, stop_daemon, DaemonPaths};
 
 fn main() {
     let cli = Cli::parse();
@@ -117,7 +117,7 @@ fn cmd_up_background(repo_root: &PathBuf, config_path: Option<&std::path::Path>)
     }
 
     // Re-launch this binary as a detached background process.
-    // The child runs `fg up` (without -d) so it goes through cmd_up_foreground.
+    // The child runs `gd up` (without -d) so it goes through cmd_up_foreground.
     let exe = match std::env::current_exe() {
         Ok(e) => e,
         Err(e) => {
@@ -217,7 +217,7 @@ fn cmd_status(repo_root: &PathBuf) -> i32 {
     }
 }
 
-fn cmd_log(repo_root: &PathBuf, args: &fastgit::cli::LogArgs) -> i32 {
+fn cmd_log(repo_root: &PathBuf, args: &gitdaemon::cli::LogArgs) -> i32 {
     if args.follow {
         return cmd_log_follow(repo_root, args);
     }
@@ -262,7 +262,7 @@ fn print_recent_commits(repo_root: &PathBuf, count: usize, all: bool) -> usize {
             let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(time, 0)
                 .map(|t| t.format("%Y-%m-%d %H:%M:%S UTC").to_string())
                 .unwrap_or_else(|| "unknown".to_string());
-            let tag = if is_fg { "fg".cyan().bold().to_string() } else { "  ".to_string() };
+            let tag = if is_fg { "gd".cyan().bold().to_string() } else { "  ".to_string() };
             println!(
                 "{} {}  {}  {}",
                 tag,
@@ -283,7 +283,7 @@ fn print_recent_commits(repo_root: &PathBuf, count: usize, all: bool) -> usize {
 
 fn is_fg_commit(summary: &str) -> bool {
     let s = summary.trim();
-    // conventional commit types fg uses, or legacy auto: prefix
+    // conventional commit types gd uses, or legacy auto: prefix
     let conventional = s.contains(": ")
         && s.split(':').next().map(|t| {
             let base = t.trim().split('(').next().unwrap_or(t).trim().trim_end_matches(')');
@@ -293,10 +293,10 @@ fn is_fg_commit(summary: &str) -> bool {
 }
 
 /// Follow mode: poll for new commits every 2 seconds and print them as they appear.
-fn cmd_log_follow(repo_root: &PathBuf, args: &fastgit::cli::LogArgs) -> i32 {
+fn cmd_log_follow(repo_root: &PathBuf, args: &gitdaemon::cli::LogArgs) -> i32 {
     println!(
         "{} watching for new commits on {} (Ctrl-C to stop)",
-        "fg log --follow".bold(),
+        "gd log --follow".bold(),
         repo_root.display().to_string().dimmed()
     );
 
@@ -353,7 +353,7 @@ fn cmd_log_follow(repo_root: &PathBuf, args: &fastgit::cli::LogArgs) -> i32 {
             let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(time, 0)
                 .map(|t| t.format("%H:%M:%S").to_string())
                 .unwrap_or_else(|| "??:??:??".to_string());
-            let tag = if is_fg { "fg".cyan().bold().to_string() } else { "  ".to_string() };
+            let tag = if is_fg { "gd".cyan().bold().to_string() } else { "  ".to_string() };
             println!(
                 "{} {}  {}  {}",
                 tag,
@@ -420,9 +420,9 @@ fn cmd_ipc_simple(repo_root: &PathBuf, cmd: IpcCommand, success_msg: &str) -> i3
 // ============================================================================
 
 fn cmd_ls(repo_root: &PathBuf) -> i32 {
-    match fastgit::ls::list_tracked_files(repo_root) {
+    match gitdaemon::ls::list_tracked_files(repo_root) {
         Ok(files) => {
-            println!("{}", fastgit::ls::render(&files, repo_root));
+            println!("{}", gitdaemon::ls::render(&files, repo_root));
             0
         }
         Err(e) => {
@@ -433,11 +433,11 @@ fn cmd_ls(repo_root: &PathBuf) -> i32 {
 }
 
 fn cmd_init(repo_root: &PathBuf, force: bool) -> i32 {
-    let config_path = repo_root.join("fg.yml");
+    let config_path = repo_root.join("gd.yml");
 
     if config_path.exists() && !force {
         eprintln!(
-            "{} fg.yml already exists. Use --force to overwrite.",
+            "{} gd.yml already exists. Use --force to overwrite.",
             "error:".red().bold()
         );
         return 1;
@@ -445,12 +445,12 @@ fn cmd_init(repo_root: &PathBuf, force: bool) -> i32 {
 
     let content = Config::generate_default();
     if let Err(e) = std::fs::write(&config_path, &content) {
-        eprintln!("{} failed to write fg.yml: {}", "error:".red().bold(), e);
+        eprintln!("{} failed to write gd.yml: {}", "error:".red().bold(), e);
         return 1;
     }
 
-    println!("{} created fg.yml", "✓".green().bold());
-    println!("  Edit it to customize, then run: {}", "fg up".bold());
+    println!("{} created gd.yml", "✓".green().bold());
+    println!("  Edit it to customize, then run: {}", "gd up".bold());
     0
 }
 
@@ -471,7 +471,7 @@ fn load_config(
 ) -> anyhow::Result<Config> {
     let path = config_path
         .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| repo_root.join("fg.yml"));
+        .unwrap_or_else(|| repo_root.join("gd.yml"));
 
     Config::load(&path)
 }

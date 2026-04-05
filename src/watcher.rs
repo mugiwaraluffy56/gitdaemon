@@ -37,7 +37,7 @@ impl ChangeWatcher {
     /// Start watching `repo_root` recursively, filtering by `ignore_patterns`.
     ///
     /// Events are debounced over a 150 ms window and delivered via `tx`.
-    /// The `.fg/` directory is always ignored.
+    /// The `.gd/` directory is always ignored.
     pub fn start(
         repo_root: &Path,
         ignore_patterns: Vec<String>,
@@ -142,8 +142,8 @@ fn should_skip(path: &Path, repo_root: &Path, patterns: &[Pattern]) -> bool {
     };
     let rel_str = rel.to_string_lossy();
 
-    // Always skip .fg/ daemon state and .git/ internal files
-    if rel_str.starts_with(".fg") || rel_str.starts_with(".git") {
+    // Always skip .gd/ daemon state and .git/ internal files
+    if rel_str.starts_with(".gd") || rel_str.starts_with(".git") {
         return true;
     }
 

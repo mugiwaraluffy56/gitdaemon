@@ -5,7 +5,7 @@ use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 /// A point-in-time snapshot of the daemon's sync state, returned by
-/// `fg status` and the IPC `Status` command.
+/// `gd status` and the IPC `Status` command.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusSnapshot {
     /// Absolute path to the repo root.
@@ -103,7 +103,7 @@ impl StatusSnapshot {
         lines.push(format!(
             "{} {} — {}",
             health_icon,
-            "fastgit".bold(),
+            "gitdaemon".bold(),
             self.repo_root.dimmed()
         ));
 
@@ -168,7 +168,7 @@ impl StatusSnapshot {
             lines.push(format!(
                 "\n  {} auto-push is paused — run {} to resume",
                 "⏸".yellow(),
-                "fg resume".bold()
+                "gd resume".bold()
             ));
         }
 

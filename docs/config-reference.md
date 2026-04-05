@@ -1,6 +1,6 @@
-# fastgit Configuration Reference
+# gitdaemon (gd) Configuration Reference
 
-Complete reference for every field in `fg.yml`.
+Complete reference for every field in `gd.yml`.
 
 ---
 
@@ -22,12 +22,12 @@ Complete reference for every field in `fg.yml`.
 
 ## 1. File location and format
 
-`fg.yml` must live at the **root of the Git repository** being managed. It is created by `gd init` and is YAML 1.1 (parsed by the `serde_yaml` crate).
+`gd.yml` must live at the **root of the Git repository** being managed. It is created by `gd init` and is YAML 1.1 (parsed by the `serde_yaml` crate).
 
 ```
 my-project/
 ├── .git/
-├── fg.yml          ← here
+├── gd.yml          ← here
 ├── src/
 └── ...
 ```
@@ -35,10 +35,10 @@ my-project/
 To use a different path, pass `--config <path>` to `gd up`:
 
 ```sh
-gd up --config /etc/fg/project.yml
+gd up --config /etc/gd/project.yml
 ```
 
-> **Version field is required.** Every `fg.yml` must start with `version: 1`.  
+> **Version field is required.** Every `gd.yml` must start with `version: 1`.  
 > If `version` is missing or not `1`, the daemon refuses to start.
 
 ---
@@ -89,7 +89,7 @@ All fields and their defaults:
 | **Type** | boolean |
 | **Default** | `true` |
 
-When `true`, `gd` calls the equivalent of `git add` on every modified, added, or deleted file each time the filesystem watcher fires. Files matching the `ignore` list or `.gitignore` are skipped. The `.fg/` and `.git/` directories are always excluded.
+When `true`, `gd` calls the equivalent of `git add` on every modified, added, or deleted file each time the filesystem watcher fires. Files matching the `ignore` list or `.gitignore` are skipped. The `.gd/` and `.git/` directories are always excluded.
 
 When `false`, `gd` still auto-commits and auto-pushes — but only what is **already staged**. You are responsible for staging files yourself (`git add`).
 
@@ -488,7 +488,7 @@ Patterns follow `.gitignore` glob conventions:
 
 The following are always excluded regardless of configuration:
 
-- `.fg/` — daemon state files
+- `.gd/` — daemon state files
 - `.git/` — Git internals
 
 ---
@@ -610,7 +610,7 @@ Runs **after a successful push**. Environment variables available: `$FG_BRANCH` 
 
 ```yaml
 hooks:
-  on_push_success: "notify-send 'fg' 'pushed $FG_COMMITS commits on $FG_BRANCH'"
+  on_push_success: "notify-send "gd" 'pushed $FG_COMMITS commits on $FG_BRANCH'"
 ```
 
 ### `hooks.on_conflict`
@@ -668,7 +668,7 @@ This gates formatting and lint errors (commit aborted if they fail) while runnin
 
 ## 9. Full annotated example
 
-A production-ready `fg.yml` for a Rust project:
+A production-ready `gd.yml` for a Rust project:
 
 ```yaml
 version: 1
@@ -722,7 +722,7 @@ hooks:
 
 ---
 
-A `fg.yml` for a Node.js/TypeScript project:
+A `gd.yml` for a Node.js/TypeScript project:
 
 ```yaml
 version: 1
@@ -765,7 +765,7 @@ hooks:
 
 ---
 
-A `fg.yml` for a Python project with aggressive commit frequency:
+A `gd.yml` for a Python project with aggressive commit frequency:
 
 ```yaml
 version: 1
@@ -813,7 +813,7 @@ hooks:
 
 ## 10. Validation rules
 
-`gd` validates `fg.yml` on startup. Any violation causes the daemon to refuse to start.
+`gd` validates `gd.yml` on startup. Any violation causes the daemon to refuse to start.
 
 | Rule | Error message |
 |---|---|
@@ -824,7 +824,7 @@ hooks:
 | `push.branch` must not be empty | `push.branch cannot be empty` |
 | `commit.message` must not be empty or whitespace | `commit.message cannot be empty` |
 
-Unknown fields in `fg.yml` are silently ignored (forward-compatible with future versions).
+Unknown fields in `gd.yml` are silently ignored (forward-compatible with future versions).
 
 ---
 

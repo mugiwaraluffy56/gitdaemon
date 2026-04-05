@@ -1,4 +1,4 @@
-//! `fg ls` — list files the daemon is currently tracking / watching.
+//! `gd ls` — list files the daemon is currently tracking / watching.
 //!
 //! Shows the working-tree state in a git-status style layout, coloured by
 //! whether a file is staged, modified but unstaged, or untracked.
@@ -24,7 +24,7 @@ pub enum FileState {
     Conflicted,
 }
 
-/// One entry in the `fg ls` output.
+/// One entry in the `gd ls` output.
 #[derive(Debug, Clone)]
 pub struct TrackedFile {
     pub path: String,
@@ -49,8 +49,8 @@ pub fn list_tracked_files(repo_root: &Path) -> Result<Vec<TrackedFile>> {
     for entry in statuses.iter() {
         let s = entry.status();
 
-        // Skip .fg/ internal state
-        if entry.path().map(|p| p.starts_with(".fg")).unwrap_or(false) {
+        // Skip .gd/ internal state
+        if entry.path().map(|p| p.starts_with(".gd")).unwrap_or(false) {
             continue;
         }
 

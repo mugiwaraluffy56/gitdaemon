@@ -1,4 +1,4 @@
-//! fastgit (fg) — declarative background Git sync engine
+//! gitdaemon (gd) — declarative background Git sync engine
 
 pub mod cli;
 pub mod config;

@@ -1,5 +1,5 @@
 [package]
-name = "fastgit"
+name = "gitdaemon"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,7 +8,7 @@ name = "gd"
 path = "src/main.rs"
 
 [lib]
-name = "fastgit"
+name = "gitdaemon"
 path = "src/lib.rs"
 
 [dependencies]

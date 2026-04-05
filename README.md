@@ -1,4 +1,4 @@
-# fastgit (fg)
+# gitdaemon (gd)
 
 > **Declarative background Git sync engine with intelligent auto-commits**
 
@@ -29,8 +29,8 @@
 ### From source
 
 ```sh
-git clone https://github.com/fastgit/fg
-cd fg
+git clone https://github.com/mugiwaraluffy56/gitdaemon
+cd gd
 cargo build --release
 cp target/release/gd ~/.local/bin/
 ```
@@ -103,7 +103,7 @@ Available tokens: `{summary}`, `{count}`, `{branch}`, `{timestamp}`
 
 ---
 
-## Configuration (`fg.yml`)
+## Configuration (`gd.yml`)
 
 ```yaml
 version: 1
@@ -186,8 +186,8 @@ gd squash 5      # squash last 5 auto-commits into one clean commit
 gd pause         # pause auto-push (staging and committing continue)
 gd resume        # resume auto-push
 gd push          # trigger an immediate push right now
-gd init          # create fg.yml in the current repo
-gd init --force  # overwrite an existing fg.yml
+gd init          # create gd.yml in the current repo
+gd init --force  # overwrite an existing gd.yml
 ```
 
 ---
@@ -195,7 +195,7 @@ gd init --force  # overwrite an existing fg.yml
 ## `gd status` output
 
 ```
-⚡ fastgit — /home/alice/projects/my-project
+⚡ gitdaemon — /home/alice/projects/my-project
   branch   feature/auth → origin/feature/auth
   ahead    3 commits (queued to push, last push 42s ago)
   behind   0
@@ -297,7 +297,7 @@ When a merge conflict is detected, `gd` automatically pauses push. It resumes on
 hooks:
   pre_commit: "cargo fmt --check && cargo clippy -- -D warnings"
   post_commit: "cargo test --quiet"
-  on_push_success: "osascript -e 'display notification \"pushed\" with title \"fg\"'"
+  on_push_success: "osascript -e 'display notification \"pushed\" with title \"gd\"'"
   on_conflict: "notify-send "gd conflict' \"$FG_ERROR\""
 ```
 
@@ -312,14 +312,14 @@ hooks:
 
 The daemon runs a single `tokio::select!` loop over six concurrent channels:
 
-1. **Filesystem watcher** — `notify` crate, 150 ms debounce, respects `.gitignore` and `fg.yml` ignore list
+1. **Filesystem watcher** — `notify` crate, 150 ms debounce, respects `.gitignore` and `gd.yml` ignore list
 2. **Commit ticker** — fires every `commit.interval` seconds
 3. **Push ticker** — fires every `push.interval` seconds
 4. **Force-push notifier** — woken by `gd push` via IPC
 5. **Fetch + sync ticker** — fires every `repo.fetch_interval` seconds, runs fetch → fast-forward base → rebase
-6. **IPC channel** — Unix socket at `.fg/daemon.sock`
+6. **IPC channel** — Unix socket at `.gd/daemon.sock`
 
-State files written to `.fg/`:
+State files written to `.gd/`:
 
 | File | Purpose |
 |---|---|

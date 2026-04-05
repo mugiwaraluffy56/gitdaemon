@@ -137,7 +137,7 @@ impl PushQueue {
             if cfg.push.protected_branches.iter().any(|p| p == cb) {
                 warn!(
                     branch = %cb,
-                    "auto-push skipped: '{}' is a protected branch — use `fg push` to push manually",
+                    "auto-push skipped: '{}' is a protected branch — use `gd push` to push manually",
                     cb
                 );
                 return Ok(None);

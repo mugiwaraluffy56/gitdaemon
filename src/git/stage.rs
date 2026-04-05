@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, trace};
 
 /// Stage all working-tree changes, skipping files that match any of the
-/// provided ignore patterns or the `.fg/` daemon state directory.
+/// provided ignore patterns or the `.gd/` daemon state directory.
 ///
 /// Returns the list of files that were staged (paths relative to repo root).
 pub fn stage_changes(repo_root: &Path, ignore_patterns: &[String]) -> Result<Vec<PathBuf>> {
@@ -45,9 +45,9 @@ pub fn stage_changes(repo_root: &Path, ignore_patterns: &[String]) -> Result<Vec
         };
         let rel_path = Path::new(path_str);
 
-        // Never stage anything inside .fg/ (daemon state directory)
-        if path_str.starts_with(".fg/") || path_str == ".fg" {
-            trace!(path = path_str, "skipping .fg/ path");
+        // Never stage anything inside .gd/ (daemon state directory)
+        if path_str.starts_with(".gd/") || path_str == ".gd" {
+            trace!(path = path_str, "skipping .gd/ path");
             continue;
         }
 
@@ -136,11 +136,11 @@ mod tests {
     fn test_stage_ignores_fg_dir() -> Result<(), anyhow::Error> {
         let dir = TempDir::new()?;
         init_repo_with_commit(dir.path())?;
-        let fg_dir = dir.path().join(".fg");
+        let fg_dir = dir.path().join(".gd");
         fs::create_dir_all(&fg_dir)?;
         fs::write(fg_dir.join("daemon.pid"), "12345")?;
         let staged = stage_changes(dir.path(), &[])?;
-        assert!(staged.iter().all(|p| !p.starts_with(".fg")));
+        assert!(staged.iter().all(|p| !p.starts_with(".gd")));
         Ok(())
     }
 

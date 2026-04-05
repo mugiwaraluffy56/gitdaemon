@@ -3,7 +3,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-/// fastgit — declarative background Git sync engine.
+/// gitdaemon — declarative background Git sync engine.
 #[derive(Parser, Debug)]
 #[command(
     name = "gd",
@@ -48,7 +48,7 @@ pub enum Command {
     #[command(name = "push")]
     PushNow,
 
-    /// Create a default fg.yml in the current repository.
+    /// Create a default gd.yml in the current repository.
     Init(InitArgs),
 
     /// Undo the last N auto-commits (soft reset back to index).
@@ -67,7 +67,7 @@ pub struct UndoArgs {
     #[arg(default_value = "1")]
     pub count: usize,
 
-    /// Undo even if the commit doesn't look like an fg auto-commit.
+    /// Undo even if the commit doesn't look like a gd auto-commit.
     #[arg(long)]
     pub force: bool,
 }
@@ -84,7 +84,7 @@ pub struct UpArgs {
     #[arg(short = 'd', long)]
     pub background: bool,
 
-    /// Path to fg.yml (defaults to `<repo>/fg.yml`).
+    /// Path to gd.yml (defaults to `<repo>/gd.yml`).
     #[arg(short, long, value_name = "FILE")]
     pub config: Option<PathBuf>,
 }
@@ -99,14 +99,14 @@ pub struct LogArgs {
     #[arg(short = 'f', long)]
     pub follow: bool,
 
-    /// Show all commits, not just fg auto-commits.
+    /// Show all commits, not just gd auto-commits.
     #[arg(long)]
     pub all: bool,
 }
 
 #[derive(Parser, Debug)]
 pub struct InitArgs {
-    /// Overwrite an existing fg.yml.
+    /// Overwrite an existing gd.yml.
     #[arg(long)]
     pub force: bool,
 }

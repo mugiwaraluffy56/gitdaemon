@@ -15,7 +15,7 @@ use crate::daemon::context::DaemonContext;
 use crate::daemon::ipc::start_ipc_server;
 use crate::daemon::pid::{remove_pid, running_daemon_pid, write_pid};
 
-/// Paths used by the daemon inside a `.fg/` directory.
+/// Paths used by the daemon inside a `.gd/` directory.
 pub struct DaemonPaths {
     pub pid_file: PathBuf,
     pub socket: PathBuf,
@@ -25,7 +25,7 @@ pub struct DaemonPaths {
 impl DaemonPaths {
     /// Resolve paths relative to `repo_root`.
     pub fn new(repo_root: &Path) -> Self {
-        let fg_dir = repo_root.join(".fg");
+        let fg_dir = repo_root.join(".gd");
         Self {
             pid_file: fg_dir.join("daemon.pid"),
             socket: fg_dir.join("daemon.sock"),
@@ -41,15 +41,15 @@ impl DaemonPaths {
 pub async fn start_daemon(repo_root: PathBuf, config: Config) -> Result<()> {
     let paths = DaemonPaths::new(&repo_root);
 
-    // Ensure .fg/ exists
+    // Ensure .gd/ exists
     if let Some(parent) = paths.pid_file.parent() {
-        std::fs::create_dir_all(parent).context("failed to create .fg/ directory")?;
+        std::fs::create_dir_all(parent).context("failed to create .gd/ directory")?;
     }
 
     // Check for existing daemon
     if let Some(pid) = running_daemon_pid(&paths.pid_file) {
         return Err(anyhow!(
-            "daemon already running (pid {}). Use `fg down` to stop it.",
+            "daemon already running (pid {}). Use `gd down` to stop it.",
             pid
         ));
     }

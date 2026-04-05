@@ -1,6 +1,6 @@
 //! Auto-sync base branch.
 //!
-//! After every fetch cycle `fg` can:
+//! After every fetch cycle `gd` can:
 //! 1. **Fast-forward** the base branch (`main`/`master`) to `origin/<base>`
 //!    without checking it out — the ref is updated directly.
 //! 2. **Rebase** the current working branch onto the updated base, but only
@@ -124,7 +124,7 @@ fn fast_forward_base(
                 remote_oid,
                 false,
                 &format!(
-                    "fg: create {} tracking origin/{}",
+                    "gd: create {} tracking origin/{}",
                     base_branch, base_branch
                 ),
             )
@@ -168,7 +168,7 @@ fn fast_forward_base(
         .set_target(
             remote_oid,
             &format!(
-                "fg: fast-forward {} → origin/{} (+{} commits)",
+                "gd: fast-forward {} → origin/{} (+{} commits)",
                 base_branch, base_branch, remote_ahead
             ),
         )
@@ -235,7 +235,7 @@ fn rebase_onto_base(
 
         let stash_out = std::process::Command::new("git")
             .current_dir(repo_root)
-            .args(["stash", "push", "--include-untracked", "-m", "fg: auto-stash before rebase"])
+            .args(["stash", "push", "--include-untracked", "-m", "gd: auto-stash before rebase"])
             .output()
             .context("failed to spawn `git stash push`")?;
 

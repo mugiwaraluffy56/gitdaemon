@@ -1,4 +1,4 @@
-//! `fg squash <n>` — squash the last N auto-commits into one clean commit.
+//! `gd squash <n>` — squash the last N auto-commits into one clean commit.
 //!
 //! Combines the diffs of the last N commits and re-generates a single
 //! conventional commit message from the combined changeset.

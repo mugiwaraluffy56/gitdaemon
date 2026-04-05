@@ -1,4 +1,4 @@
-//! Unix-socket IPC: JSON protocol between `fg` CLI and the daemon.
+//! Unix-socket IPC: JSON protocol between `gd` CLI and the daemon.
 
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -163,7 +163,7 @@ pub async fn send_command(socket_path: &Path, cmd: IpcCommand) -> Result<IpcResp
         .await
         .with_context(|| {
             format!(
-                "failed to connect to daemon socket {}. Is the daemon running? (fg up)",
+                "failed to connect to daemon socket {}. Is the daemon running? (gd up)",
                 socket_path.display()
             )
         })?;

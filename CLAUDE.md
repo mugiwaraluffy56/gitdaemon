@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`fastgit` (`fg`) is a declarative background Git sync engine written in Rust. It automates the fetch/stage/commit/push loop so developers don't have to manually run Git rituals. The project is currently in the specification phase — the README.md is the authoritative design document.
+`gitdaemon` (`gd`) is a declarative background Git sync engine written in Rust. It automates the fetch/stage/commit/push loop so developers don't have to manually run Git rituals. The project is currently in the specification phase — the README.md is the authoritative design document.
 
 ## Build & Development Commands
 
@@ -28,7 +28,7 @@ The daemon runs a single `tokio::select!` loop over five concurrent channels:
 2. **Commit ticker** — fires every `commit.interval` seconds (strategy: `time` or `change_count`)
 3. **Push ticker** — fires every `push.interval` seconds, batching commits
 4. **Fetch ticker** — fires every `repo.fetch_interval` seconds (default: 60s)
-5. **IPC channel** — unix socket at `.fg/daemon.sock`, handles `status`/`pause`/`push now` commands from CLI
+5. **IPC channel** — unix socket at `.gd/daemon.sock`, handles `status`/`pause`/`push now` commands from CLI
 
 ### Module Layout
 
@@ -55,7 +55,7 @@ src/
 
 ### Configuration (`fg.yml`)
 
-Each tracked repo has an `fg.yml` at its root (created with `fg init`). Key fields:
+Each tracked repo has an `fg.yml` at its root (created with `gd init`). Key fields:
 - `commit.strategy`: `time` (every N seconds if changes exist) or `change_count` (once N files accumulated)
 - `safety.block_secrets`: scans the *diff* before push for secret patterns — non-zero exit aborts
 - `hooks.pre_commit` / `hooks.post_commit`: shell commands; non-zero exit aborts the commit
@@ -63,4 +63,4 @@ Each tracked repo has an `fg.yml` at its root (created with `fg init`). Key fiel
 
 ### IPC Protocol
 
-CLI commands (`fg pause`, `fg push now`, `fg status`) communicate with the running daemon via the unix socket at `.fg/daemon.sock`. The `src/daemon/ipc.rs` module owns both the server side (daemon) and client side (CLI).
+CLI commands (`gd pause`, `gd push now`, `gd status`) communicate with the running daemon via the unix socket at `.gd/daemon.sock`. The `src/daemon/ipc.rs` module owns both the server side (daemon) and client side (CLI).

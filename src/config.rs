@@ -95,8 +95,8 @@ pub struct PushConfig {
     pub interval: u64,
     #[serde(default = "default_branch")]
     pub branch: String,
-    /// Branches that fg must never auto-push to. Pushing to any of these
-    /// requires an explicit `fg push` with the daemon paused.
+    /// Branches that gd must never auto-push to. Pushing to any of these
+    /// requires an explicit `gd push` with the daemon paused.
     #[serde(default = "default_protected_branches")]
     pub protected_branches: Vec<String>,
 }
@@ -274,9 +274,9 @@ impl Config {
         Self::load_from_str(&contents)
     }
 
-    /// Load Config from fg.yml in the given repository root.
+    /// Load Config from gd.yml in the given repository root.
     pub fn load_from_repo(repo_root: &Path) -> Result<Self> {
-        Self::load(&repo_root.join("fg.yml"))
+        Self::load(&repo_root.join("gd.yml"))
     }
 
     /// Parse and validate from a YAML string.
@@ -310,9 +310,9 @@ impl Config {
         Ok(())
     }
 
-    /// Generate a canonical default fg.yml with comments.
+    /// Generate a canonical default gd.yml with comments.
     pub fn generate_default() -> String {
-        r#"# fastgit configuration — https://github.com/fastgit/fg
+        r#"# gitdaemon configuration — https://github.com/mugiwaraluffy56/gitdaemon
 version: 1
 
 repo:
@@ -349,7 +349,7 @@ push:
   interval: 300
   # Branch to push
   branch: main
-  # Branches that fg must never auto-push to (use `fg push` to push manually)
+  # Branches that gd must never auto-push to (use `gd push` to push manually)
   protected_branches:
     - main
     - master
@@ -426,7 +426,7 @@ mod tests {
 
     #[test]
     fn test_load_nonexistent() {
-        assert!(Config::load(Path::new("/nonexistent/path/fg.yml")).is_err());
+        assert!(Config::load(Path::new("/nonexistent/path/gd.yml")).is_err());
     }
 
     #[test]

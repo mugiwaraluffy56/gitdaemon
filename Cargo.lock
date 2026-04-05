@@ -330,36 +330,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fastgit"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "chrono",
- "clap",
- "colored",
- "dirs",
- "git2",
- "glob",
- "ignore",
- "libc",
- "nix",
- "notify",
- "once_cell",
- "predicates",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -464,6 +434,36 @@ dependencies = [
  "openssl-probe",
  "openssl-sys",
  "url",
+]
+
+[[package]]
+name = "gitdaemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "chrono",
+ "clap",
+ "colored",
+ "dirs",
+ "git2",
+ "glob",
+ "ignore",
+ "libc",
+ "nix",
+ "notify",
+ "once_cell",
+ "predicates",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
 ]
 
 [[package]]

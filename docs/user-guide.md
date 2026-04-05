@@ -1,4 +1,4 @@
-# fastgit User Guide
+# gitdaemon (gd) User Guide
 
 This guide walks through every feature of `gd`, from getting started to advanced daily use.
 
@@ -26,10 +26,10 @@ This guide walks through every feature of `gd`, from getting started to advanced
 18. [Auto-sync base branch](#18-auto-sync-base-branch)
 19. [Auto-stash before rebase](#19-auto-stash-before-rebase)
 20. [Branch-push guard](#20-branch-push-guard)
-21. [Listing tracked files (`gd ls`)](#21-listing-tracked-files-fg-ls)
-22. [Undoing auto-commits (`gd undo`)](#22-undoing-auto-commits-fg-undo)
-23. [Squashing auto-commits (`gd squash`)](#23-squashing-auto-commits-fg-squash)
-24. [Real-time commit log (`gd log -f`)](#24-real-time-commit-log-fg-log--f)
+21. [Listing tracked files (`gd ls`)](#21-listing-tracked-files-gd-ls)
+22. [Undoing auto-commits (`gd undo`)](#22-undoing-auto-commits-gd-undo)
+23. [Squashing auto-commits (`gd squash`)](#23-squashing-auto-commits-gd-squash)
+24. [Real-time commit log (`gd log -f`)](#24-real-time-commit-log-gd-log--f)
 25. [Notification hooks](#25-notification-hooks)
 
 ---
@@ -39,10 +39,10 @@ This guide walks through every feature of `gd`, from getting started to advanced
 ### Build from source
 
 ```sh
-git clone https://github.com/fastgit/fg
-cd fg
+git clone https://github.com/mugiwaraluffy56/gitdaemon
+cd gd
 cargo build --release
-cp target/release/fg ~/.local/bin/
+cp target/release/gd ~/.local/bin/
 ```
 
 ### Requirements
@@ -65,10 +65,10 @@ cd ~/projects/my-project
 gd init
 ```
 
-This writes a `fg.yml` config file at the repo root with sensible defaults. If one already exists, `gd init` will refuse to overwrite it unless you pass `--force`:
+This writes a `gd.yml` config file at the repo root with sensible defaults. If one already exists, `gd init` will refuse to overwrite it unless you pass `--force`:
 
 ```sh
-gd init --force   # overwrite an existing fg.yml
+gd init --force   # overwrite an existing gd.yml
 ```
 
 The generated file includes full comments — open it and read through before starting the daemon.
@@ -83,13 +83,13 @@ gd up -d         # detached background process
 ```
 
 On startup the daemon:
-1. Reads and validates `fg.yml`
-2. Writes its PID to `.fg/daemon.pid`
-3. Opens the IPC socket at `.fg/daemon.sock`
+1. Reads and validates `gd.yml`
+2. Writes its PID to `.gd/daemon.pid`
+3. Opens the IPC socket at `.gd/daemon.sock`
 4. Starts the filesystem watcher
 5. Enters the main `tokio::select!` loop
 
-> **Note:** `gd up` looks for `fg.yml` in the current directory by default.  
+> **Note:** `gd up` looks for `gd.yml` in the current directory by default.  
 > Use `--repo /path/to/repo` to point it at a different directory:
 > ```sh
 > gd up --repo ~/projects/other-project
@@ -101,12 +101,12 @@ On startup the daemon:
 
 When a file in the working tree changes, the filesystem watcher fires within ~150 ms (after debouncing). `gd` then runs the equivalent of `git add` on all modified, new, and deleted files — **but skips**:
 
-- Anything matching patterns in `fg.yml`'s `ignore` list  
+- Anything matching patterns in `gd.yml`'s `ignore` list  
 - Anything already excluded by `.gitignore`  
-- Everything inside `.fg/` (daemon state) and `.git/` (git internals)
+- Everything inside `.gd/` (daemon state) and `.git/` (git internals)
 
 ```yaml
-# fg.yml
+# gd.yml
 ignore:
   - "*.log"       # any .log file in the repo
   - "node_modules/"
@@ -383,7 +383,7 @@ Both hooks run with `sh -c "<command>"` and inherit the daemon's environment. Th
 
 ## 11. Controlling the daemon at runtime
 
-All control commands communicate with the running daemon over the Unix socket at `.fg/daemon.sock`.
+All control commands communicate with the running daemon over the Unix socket at `.gd/daemon.sock`.
 
 ### Pause auto-push
 
@@ -418,7 +418,7 @@ gd status
 ```
 
 ```
-⚡ fastgit — /home/alice/projects/my-project
+⚡ gitdaemon — /home/alice/projects/my-project
   branch   main → origin/main
   ahead    3 commits (queued to push, last push 42s ago)
   behind   0
@@ -457,9 +457,9 @@ gd a3f2b1c0  2025-04-01 14:32:11 UTC  feat(git): introduce PushQueue and impleme
 gd d9e17aa2  2025-04-01 14:28:05 UTC  fix(config): rework validate
 ```
 
-The `gd` tag in the first column marks auto-commits. Non-fg commits show blank when `--all` is used.
+The `gd` tag in the first column marks auto-commits. Non-gd commits show blank when `--all` is used.
 
-See [section 24](#24-real-time-commit-log-fg-log--f) for follow mode details.
+See [section 24](#24-real-time-commit-log-gd-log--f) for follow mode details.
 
 ---
 
@@ -471,8 +471,8 @@ gd down
 
 Sends `SIGTERM` to the daemon process. The daemon:
 1. Exits the select loop cleanly
-2. Removes `.fg/daemon.pid`
-3. Removes `.fg/daemon.sock`
+2. Removes `.gd/daemon.pid`
+3. Removes `.gd/daemon.sock`
 
 If the daemon is not running, `gd down` reports an error and exits with code 2.
 
@@ -501,14 +501,14 @@ Launches the daemon as a detached background process using `setsid`. The parent 
 daemon started (pid 18432)
 ```
 
-The background daemon reads the same `fg.yml` and writes to the same `.fg/` directory. Use `gd status`, `gd pause`, etc. to interact with it. `gd down` stops it.
+The background daemon reads the same `gd.yml` and writes to the same `.gd/` directory. Use `gd status`, `gd pause`, etc. to interact with it. `gd down` stops it.
 
 To check if a background daemon is running:
 
 ```sh
 gd status     # shows "daemon   running (pid 18432)"
 # or
-cat .fg/daemon.pid && kill -0 $(cat .fg/daemon.pid)
+cat .gd/daemon.pid && kill -0 $(cat .gd/daemon.pid)
 ```
 
 ---
@@ -529,7 +529,7 @@ gd up -vvv
 
 # Override via environment variable (takes precedence over -v flags)
 RUST_LOG=debug gd up
-RUST_LOG=fastgit=trace,git2=warn gd up
+RUST_LOG=gitdaemon=trace,git2=warn gd up
 ```
 
 Log format:
@@ -539,10 +539,10 @@ Log format:
 2025-04-01T14:34:00Z INFO  fetched remote=origin refs_updated=2
 ```
 
-The `.fg/` directory does **not** currently write a log file — all output goes to stdout/stderr. To capture logs from a background daemon, redirect when launching:
+The `.gd/` directory does **not** currently write a log file — all output goes to stdout/stderr. To capture logs from a background daemon, redirect when launching:
 
 ```sh
-gd up -vv > .fg/daemon.log 2>&1 &
+gd up -vv > .gd/daemon.log 2>&1 &
 ```
 
 Or use `gd up -d` and check stderr via your process supervisor.
@@ -606,7 +606,7 @@ repo:
 # You create a feature branch and start working
 git checkout -b feature/my-thing
 
-# Start fg
+# Start gd
 gd up -d
 
 # Work normally — edit files, gd auto-commits
@@ -703,7 +703,7 @@ tracking 4 files
 | `R` (cyan) | Renamed — shows `old → new` |
 | `!` (red bold) | Merge conflict |
 
-Files in `.fg/` are always excluded. Groups appear in priority order: conflicts first, then staged, renamed, deleted, modified, untracked.
+Files in `.gd/` are always excluded. Groups appear in priority order: conflicts first, then staged, renamed, deleted, modified, untracked.
 
 `gd ls` reads directly from the repository — it does not require the daemon to be running.
 
@@ -828,25 +828,25 @@ hooks:
   on_push_success: >
     osascript -e
     'display notification "pushed $FG_COMMITS commits on $FG_BRANCH"
-    with title "fastgit" sound name "Glass"'
+    with title "gitdaemon" sound name "Glass"'
 
   # Linux desktop notification on push
-  on_push_success: "notify-send 'fastgit' 'pushed $FG_COMMITS commits on $FG_BRANCH'"
+  on_push_success: "notify-send "gitdaemon" "pushed $FG_COMMITS commits on $FG_BRANCH'"
 
   # macOS alert on conflict
   on_conflict: >
     osascript -e
-    'display alert "fastgit conflict on $FG_BRANCH"
+    'display alert "gitdaemon conflict on $FG_BRANCH"
     message "$FG_ERROR" as critical'
 
   # Slack webhook on push
   on_push_success: >
     curl -s -X POST $SLACK_WEBHOOK
     -H 'Content-type: application/json'
-    -d '{"text":"fg pushed $FG_COMMITS commits on $FG_BRANCH"}'
+    -d '{"text":"gd pushed $FG_COMMITS commits on $FG_BRANCH"}'
 
   # Write to a local file
-  on_push_success: "echo \"$(date): pushed $FG_COMMITS on $FG_BRANCH\" >> ~/.fg-push.log"
+  on_push_success: "echo \"$(date): pushed $FG_COMMITS on $FG_BRANCH\" >> ~/.gd-push.log"
 ```
 
 Both hooks are non-fatal: a non-zero exit code is logged as a debug message but does not affect the daemon's operation.
