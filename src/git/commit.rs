@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 use tokio::process::Command;
 use tracing::{debug, info};
 
-use crate::config::{CommitConfig, CommitStrategy, HooksConfig};
+use crate::config::{AiConfig, CommitConfig, CommitStrategy, HooksConfig};
+use crate::git::ai_commit::generate_ai_commit_message;
 
 // ============================================================================
 // Public types
@@ -195,12 +196,15 @@ fn parse_symbol_from_line(line: &str, added: bool) -> Option<DeclaredSymbol> {
 struct StagedInfo {
     deltas: Vec<(Delta, PathBuf)>,
     symbols: Vec<DeclaredSymbol>,
+    /// Raw unified diff text (for AI message generation).
+    raw_diff: String,
 }
 
 fn collect_staged_info(repo: &git2::Repository) -> Result<StagedInfo> {
     let index = repo.index().context("failed to open index")?;
     let mut deltas: Vec<(Delta, PathBuf)> = Vec::new();
     let mut symbols: Vec<DeclaredSymbol> = Vec::new();
+    let mut raw_diff = String::new();
 
     match repo.head() {
         Ok(head_ref) => {
@@ -223,11 +227,12 @@ fn collect_staged_info(repo: &git2::Repository) -> Result<StagedInfo> {
                 deltas.push((delta.status(), path));
             }
 
-            // Walk every diff line and extract symbol declarations
+            // Walk every diff line: extract symbols and collect raw text
             diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
                 let origin = line.origin();
-                if origin == '+' || origin == '-' {
-                    if let Ok(content) = std::str::from_utf8(line.content()) {
+                if let Ok(content) = std::str::from_utf8(line.content()) {
+                    raw_diff.push_str(content);
+                    if origin == '+' || origin == '-' {
                         if let Some(sym) = parse_symbol_from_line(content, origin == '+') {
                             symbols.push(sym);
                         }
@@ -235,7 +240,7 @@ fn collect_staged_info(repo: &git2::Repository) -> Result<StagedInfo> {
                 }
                 true
             })
-            .ok(); // diff printing is best-effort; commit proceeds regardless
+            .ok(); // best-effort; commit proceeds regardless
         }
         Err(e) if e.code() == git2::ErrorCode::UnbornBranch => {
             // Initial commit — list every index entry; no diff to parse
@@ -250,7 +255,7 @@ fn collect_staged_info(repo: &git2::Repository) -> Result<StagedInfo> {
         Err(e) => return Err(e.into()),
     }
 
-    Ok(StagedInfo { deltas, symbols })
+    Ok(StagedInfo { deltas, symbols, raw_diff })
 }
 
 /// Write tree and create a commit from whatever is currently staged.
@@ -290,12 +295,15 @@ fn get_branch_name(repo: &git2::Repository) -> String {
 /// Attempt to create a commit from whatever is currently staged.
 ///
 /// - Runs the pre-commit hook first (abort on non-zero exit).
+/// - If `ai_cfg.enabled`, calls the Claude API to generate the commit message;
+///   falls back to the heuristic generator on any API error.
 /// - Runs the post-commit hook after (non-fatal on failure).
 /// - Returns a `CommitResult` describing success or the skip reason.
 pub async fn commit(
     repo_root: PathBuf,
     commit_cfg: CommitConfig,
     hook_cfg: HooksConfig,
+    ai_cfg: AiConfig,
 ) -> Result<CommitResult> {
     // ── Phase 1: collect staged deltas + diff symbols ───────────────────────
     let repo_root_c = repo_root.clone();
@@ -310,6 +318,7 @@ pub async fn commit(
     .context("spawn_blocking join error")??;
     let deltas = staged.deltas;
     let symbols = staged.symbols;
+    let raw_diff = staged.raw_diff;
 
     if deltas.is_empty() {
         debug!("no staged changes — skipping commit");
@@ -344,7 +353,21 @@ pub async fn commit(
     }
 
     // ── Phase 3: build message and create commit ─────────────────────────────
-    let summary = build_summary(&deltas, &symbols);
+    // Use AI generation when enabled; fall back to the heuristic on any error.
+    let summary = if ai_cfg.enabled {
+        match generate_ai_commit_message(&raw_diff, &ai_cfg, &repo_root).await {
+            Ok(msg) => {
+                info!("AI commit message generated");
+                msg
+            }
+            Err(e) => {
+                debug!(error = %e, "AI commit message failed — using heuristic fallback");
+                build_summary(&deltas, &symbols)
+            }
+        }
+    } else {
+        build_summary(&deltas, &symbols)
+    };
     let file_count = deltas.len();
     let message = commit_cfg.format_message(&summary, file_count, &branch);
 
@@ -386,6 +409,7 @@ pub async fn commit_if_ready(
     repo_root: PathBuf,
     commit_cfg: CommitConfig,
     hook_cfg: HooksConfig,
+    ai_cfg: AiConfig,
     acc: &mut CommitAccumulator,
     new_changes: usize,
 ) -> Result<CommitResult> {
@@ -408,7 +432,7 @@ pub async fn commit_if_ready(
         acc.add(new_changes);
     }
 
-    let result = commit(repo_root, commit_cfg, hook_cfg).await;
+    let result = commit(repo_root, commit_cfg, hook_cfg, ai_cfg).await;
     if let Ok(ref r) = result {
         if !r.skipped {
             acc.reset();
@@ -911,6 +935,7 @@ mod tests {
             path.clone(),
             CommitConfig::default(),
             HooksConfig::default(),
+            AiConfig::default(),
         )
         .await?;
 
@@ -927,7 +952,7 @@ mod tests {
     async fn test_commit_no_changes_skipped() -> Result<()> {
         let (dir, path) = create_test_repo()?;
 
-        let result = commit(path, CommitConfig::default(), HooksConfig::default()).await?;
+        let result = commit(path, CommitConfig::default(), HooksConfig::default(), AiConfig::default()).await?;
 
         assert!(result.skipped);
         assert!(matches!(result.skip_reason, Some(SkipReason::NoChanges)));
@@ -946,7 +971,7 @@ mod tests {
             message: "[{branch}] {summary}".to_string(),
             ..Default::default()
         };
-        let result = commit(path, cfg, HooksConfig::default()).await?;
+        let result = commit(path, cfg, HooksConfig::default(), AiConfig::default()).await?;
 
         // Template prefix is preserved
         assert!(result.message.starts_with('['), "expected branch prefix: {}", result.message);
@@ -971,7 +996,7 @@ mod tests {
             pre_commit: "exit 1".to_string(),
             ..HooksConfig::default()
         };
-        let result = commit(path, CommitConfig::default(), hooks).await?;
+        let result = commit(path, CommitConfig::default(), hooks, AiConfig::default()).await?;
 
         assert!(result.skipped);
         assert!(matches!(
@@ -991,7 +1016,7 @@ mod tests {
             post_commit: "exit 1".to_string(),
             ..HooksConfig::default()
         };
-        let result = commit(path, CommitConfig::default(), hooks).await?;
+        let result = commit(path, CommitConfig::default(), hooks, AiConfig::default()).await?;
 
         // Commit should succeed even when post-commit hook fails
         assert!(!result.skipped);
@@ -1011,7 +1036,7 @@ mod tests {
             ..Default::default()
         };
         let mut acc = CommitAccumulator::new();
-        let result = commit_if_ready(path, cfg, HooksConfig::default(), &mut acc, 1).await?;
+        let result = commit_if_ready(path, cfg, HooksConfig::default(), AiConfig::default(), &mut acc, 1).await?;
 
         assert!(result.skipped);
         assert!(matches!(
@@ -1035,7 +1060,7 @@ mod tests {
             ..Default::default()
         };
         let mut acc = CommitAccumulator::new();
-        let result = commit_if_ready(path, cfg, HooksConfig::default(), &mut acc, 5).await?;
+        let result = commit_if_ready(path, cfg, HooksConfig::default(), AiConfig::default(), &mut acc, 5).await?;
 
         assert!(!result.skipped);
         assert!(result.oid.is_some());
@@ -1051,7 +1076,7 @@ mod tests {
         git2::Repository::init(&path)?;
         stage_file(&path, "new.txt", "content\n")?;
 
-        let result = commit(path, CommitConfig::default(), HooksConfig::default()).await?;
+        let result = commit(path, CommitConfig::default(), HooksConfig::default(), AiConfig::default()).await?;
 
         assert!(!result.skipped);
         assert!(result.oid.is_some());

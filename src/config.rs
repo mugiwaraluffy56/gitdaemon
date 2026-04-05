@@ -23,6 +23,83 @@ pub struct Config {
     pub safety: SafetyConfig,
     #[serde(default)]
     pub hooks: HooksConfig,
+    #[serde(default)]
+    pub ai: AiConfig,
+}
+
+// ============================================================================
+// AI commit message generation config
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiConfig {
+    /// Enable AI-generated commit messages (uses the heuristic generator when false).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Anthropic API key.
+    /// - `"env:MY_VAR"` — read from the named environment variable.
+    /// - Any other non-empty string — used as the literal key.
+    /// - Empty string (default) — falls back to the `ANTHROPIC_API_KEY` env var
+    ///   or a `.env` file in the repo root.
+    #[serde(default)]
+    pub api_key: String,
+    /// Claude model to use. Defaults to Haiku for low latency and cost.
+    #[serde(default = "default_ai_model")]
+    pub model: String,
+    /// Maximum characters of diff text sent to the API.
+    /// Large diffs are truncated at a newline boundary to stay within this limit.
+    #[serde(default = "default_max_diff_chars")]
+    pub max_diff_chars: usize,
+}
+
+fn default_ai_model() -> String {
+    "claude-haiku-4-5-20251001".to_string()
+}
+
+fn default_max_diff_chars() -> usize {
+    12_000
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            api_key: String::new(),
+            model: default_ai_model(),
+            max_diff_chars: default_max_diff_chars(),
+        }
+    }
+}
+
+impl AiConfig {
+    /// Resolve the API key, loading `.env` from `repo_root` first so that
+    /// `ANTHROPIC_API_KEY` set there is available to both `env:` references
+    /// and the bare fallback.
+    pub fn resolve_api_key(&self, repo_root: &Path) -> Result<String> {
+        // Load .env from the repo root (silently ignore missing file).
+        let _ = dotenvy::from_path(repo_root.join(".env"));
+
+        let raw = self.api_key.trim();
+
+        if let Some(var_name) = raw.strip_prefix("env:") {
+            return std::env::var(var_name.trim()).with_context(|| {
+                format!(
+                    "env var '{}' referenced by ai.api_key is not set",
+                    var_name.trim()
+                )
+            });
+        }
+
+        if !raw.is_empty() {
+            return Ok(raw.to_string());
+        }
+
+        // Bare fallback: ANTHROPIC_API_KEY in the environment (may have been
+        // loaded from .env above).
+        std::env::var("ANTHROPIC_API_KEY").context(
+            "ai.api_key is not set and ANTHROPIC_API_KEY is not present in the environment or .env",
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,6 +252,7 @@ impl Default for Config {
             ignore: Vec::new(),
             safety: SafetyConfig::default(),
             hooks: HooksConfig::default(),
+            ai: AiConfig::default(),
         }
     }
 }
@@ -376,6 +454,22 @@ hooks:
   on_push_success: ""
   # Shell command run when a conflict is detected ($FG_BRANCH, $FG_ERROR available)
   on_conflict: ""
+
+# AI-generated commit messages (optional — requires an Anthropic API key)
+ai:
+  # Set to true to enable AI commit messages. Falls back to the heuristic
+  # generator automatically when disabled or when the API is unreachable.
+  enabled: false
+  # How to supply your Anthropic API key (choose one):
+  #   api_key: "env:ANTHROPIC_API_KEY"   ← read from an env var
+  #   api_key: "sk-ant-..."              ← literal key (not recommended in VCS)
+  #   api_key: ""                        ← auto-read ANTHROPIC_API_KEY or .env
+  api_key: ""
+  # Claude model. Haiku is fast and cheap for short diff summaries.
+  # Other options: claude-sonnet-4-6, claude-opus-4-6
+  model: "claude-haiku-4-5-20251001"
+  # Maximum diff characters sent to the API. Larger diffs are truncated.
+  max_diff_chars: 12000
 "#
         .to_string()
     }

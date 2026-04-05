@@ -1,5 +1,6 @@
 //! Git operations module — high-level async wrappers over git2.
 
+pub mod ai_commit;
 pub mod commit;
 pub mod fetch;
 pub mod push;

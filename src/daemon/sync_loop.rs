@@ -108,7 +108,7 @@ pub async fn run(ctx: DaemonContext) -> anyhow::Result<()> {
                 let hooks_c = config.hooks.clone();
                 let acc_pending = pending;
 
-                match commit_if_ready(repo_root_c, cfg_c, hooks_c, &mut commit_acc, acc_pending).await {
+                match commit_if_ready(repo_root_c, cfg_c, hooks_c, config.ai.clone(), &mut commit_acc, acc_pending).await {
                     Ok(result) if !result.skipped => {
                         info!(oid = ?result.oid, files = result.files_changed, "auto-committed");
                         push_queue.record_commits(1);
