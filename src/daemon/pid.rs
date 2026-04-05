@@ -1,6 +1,6 @@
 //! PID file management for the daemon.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 use tracing::debug;
@@ -31,7 +31,7 @@ pub fn read_pid(path: &Path) -> Result<u32> {
 ///
 /// On Unix, sends signal 0 to the process (no-op, just checks existence).
 pub fn pid_is_running(pid: u32) -> bool {
-    use nix::sys::signal::{kill, Signal};
+    use nix::sys::signal::kill;
     use nix::unistd::Pid;
     kill(Pid::from_raw(pid as i32), None).is_ok()
 }

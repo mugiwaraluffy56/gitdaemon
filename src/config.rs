@@ -33,6 +33,17 @@ pub struct RepoConfig {
     pub auto_fetch: bool,
     #[serde(default = "default_fetch_interval")]
     pub fetch_interval: u64,
+    /// Fast-forward `base_branch` after every fetch and optionally rebase the
+    /// current working branch onto it.
+    #[serde(default = "default_true")]
+    pub auto_sync_base: bool,
+    /// The long-lived branch to keep updated (typically `main` or `master`).
+    #[serde(default = "default_base_branch")]
+    pub base_branch: String,
+    /// When `true`, rebase the current branch onto `base_branch` after it
+    /// advances — only when the working tree is clean.
+    #[serde(default = "default_true")]
+    pub rebase_on_sync: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,10 +134,14 @@ const fn default_fetch_interval() -> u64 {
 }
 
 fn default_commit_message() -> String {
-    "auto: {summary}".to_string()
+    "{summary}".to_string()
 }
 
 fn default_branch() -> String {
+    "main".to_string()
+}
+
+fn default_base_branch() -> String {
     "main".to_string()
 }
 
@@ -150,6 +165,9 @@ impl Default for RepoConfig {
             auto_stage: true,
             auto_fetch: true,
             fetch_interval: default_fetch_interval(),
+            auto_sync_base: true,
+            base_branch: default_base_branch(),
+            rebase_on_sync: true,
         }
     }
 }
@@ -280,6 +298,13 @@ repo:
   auto_fetch: true
   # Seconds between background fetches
   fetch_interval: 60
+  # Fast-forward base_branch to origin/<base_branch> after every fetch,
+  # then rebase the current working branch onto it (if the tree is clean).
+  auto_sync_base: true
+  # The long-lived branch to keep updated (typically main or master)
+  base_branch: main
+  # Rebase the current branch onto base_branch after it advances
+  rebase_on_sync: true
 
 commit:
   # Strategy: "time" (every N seconds) or "change_count" (every N files)
@@ -288,8 +313,10 @@ commit:
   interval: 120
   # Files accumulated before committing (change_count strategy)
   change_threshold: 10
-  # Commit message template (tokens: {summary}, {count}, {branch}, {timestamp})
-  message: "auto: {summary}"
+  # Commit message template. {summary} is a full conventional commit line
+  # generated automatically (e.g. "feat(git): add push queue").
+  # Other tokens: {count}, {branch}, {timestamp}
+  message: "{summary}"
 
 push:
   # Push strategy ("batch" = queue commits and push together)
@@ -336,10 +363,13 @@ mod tests {
         assert!(config.repo.auto_stage);
         assert!(config.repo.auto_fetch);
         assert_eq!(config.repo.fetch_interval, 60);
+        assert!(config.repo.auto_sync_base);
+        assert_eq!(config.repo.base_branch, "main");
+        assert!(config.repo.rebase_on_sync);
         assert!(matches!(config.commit.strategy, CommitStrategy::Time));
         assert_eq!(config.commit.interval, 120);
         assert_eq!(config.commit.change_threshold, 10);
-        assert_eq!(config.commit.message, "auto: {summary}");
+        assert_eq!(config.commit.message, "{summary}");
         assert!(matches!(config.push.strategy, PushStrategy::Batch));
         assert_eq!(config.push.interval, 300);
         assert_eq!(config.push.branch, "main");

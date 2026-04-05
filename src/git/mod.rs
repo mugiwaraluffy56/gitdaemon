@@ -5,6 +5,7 @@ pub mod fetch;
 pub mod push;
 pub mod secrets;
 pub mod stage;
+pub mod sync;
 
 use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
