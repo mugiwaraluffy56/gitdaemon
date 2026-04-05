@@ -31,6 +31,7 @@ This guide walks through every feature of `gd`, from getting started to advanced
 23. [Squashing auto-commits (`gd squash`)](#23-squashing-auto-commits-gd-squash)
 24. [Real-time commit log (`gd log -f`)](#24-real-time-commit-log-gd-log--f)
 25. [Notification hooks](#25-notification-hooks)
+26. [AI-generated commit messages](#26-ai-generated-commit-messages)
 
 ---
 
@@ -850,3 +851,63 @@ hooks:
 ```
 
 Both hooks are non-fatal: a non-zero exit code is logged as a debug message but does not affect the daemon's operation.
+
+---
+
+## 26. AI-generated commit messages
+
+`gd` can use Claude to generate commit messages from the staged diff instead
+of the built-in heuristic generator. Both systems produce conventional commits;
+the AI path is opt-in and always falls back on error.
+
+### Quick setup
+
+```sh
+# 1. Store your API key (never commit this)
+echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
+echo ".env" >> .gitignore
+
+# 2. Enable in gd.yml
+```
+
+```yaml
+ai:
+  enabled: true
+  api_key: ""                        # auto-reads ANTHROPIC_API_KEY from env/.env
+  model: "claude-haiku-4-5-20251001" # fast and cheap
+  max_diff_chars: 12000
+```
+
+```sh
+# 3. Restart the daemon
+gd down && gd up -d
+```
+
+### Choosing a model
+
+| Model | Speed | Cost | Best for |
+|---|---|---|---|
+| `claude-haiku-4-5-20251001` | Fast | Low | Default — most commits |
+| `claude-sonnet-4-6` | Medium | Medium | Complex multi-file changes |
+| `claude-opus-4-6` | Slow | High | Large refactors and squash commits |
+
+### Fallback behaviour
+
+If the AI call fails for any reason, `gd` logs a debug warning and uses the
+heuristic generator. **Commits are never delayed or blocked by the AI path.**
+
+To verify which path is being used:
+
+```sh
+RUST_LOG=debug gd up
+# look for: "AI commit message generated" or "AI commit message failed — using heuristic fallback"
+```
+
+### Disabling without editing gd.yml
+
+```sh
+ANTHROPIC_API_KEY="" gd up    # blank key forces heuristic
+```
+
+For the complete reference including privacy considerations, see
+[ai-commit-messages.md](ai-commit-messages.md).

@@ -12,35 +12,67 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tracing::debug;
 
-use crate::config::AiConfig;
+use crate::config::{AiConfig, AiProvider};
 
 // ============================================================================
-// Anthropic Messages API types (minimal — only what we need)
+// Anthropic Messages API types
 // ============================================================================
 
 #[derive(Serialize)]
-struct MessagesRequest<'a> {
+struct AnthropicRequest<'a> {
     model: &'a str,
     max_tokens: u32,
-    messages: Vec<Message<'a>>,
+    messages: Vec<AnthropicMessage<'a>>,
 }
 
 #[derive(Serialize)]
-struct Message<'a> {
+struct AnthropicMessage<'a> {
     role: &'a str,
     content: &'a str,
 }
 
 #[derive(Deserialize)]
-struct MessagesResponse {
-    content: Vec<ContentBlock>,
+struct AnthropicResponse {
+    content: Vec<AnthropicContentBlock>,
 }
 
 #[derive(Deserialize)]
-struct ContentBlock {
+struct AnthropicContentBlock {
     #[serde(rename = "type")]
     kind: String,
     text: Option<String>,
+}
+
+// ============================================================================
+// OpenAI Chat Completions API types (also used by compatible providers)
+// ============================================================================
+
+#[derive(Serialize)]
+struct OpenAiRequest<'a> {
+    model: &'a str,
+    max_tokens: u32,
+    messages: Vec<OpenAiMessage<'a>>,
+}
+
+#[derive(Serialize)]
+struct OpenAiMessage<'a> {
+    role: &'a str,
+    content: &'a str,
+}
+
+#[derive(Deserialize)]
+struct OpenAiResponse {
+    choices: Vec<OpenAiChoice>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiChoice {
+    message: OpenAiResponseMessage,
+}
+
+#[derive(Deserialize)]
+struct OpenAiResponseMessage {
+    content: Option<String>,
 }
 
 // ============================================================================
@@ -61,7 +93,13 @@ pub async fn generate_ai_commit_message(
 ) -> Result<String> {
     let api_key = ai_cfg
         .resolve_api_key(repo_root)
-        .context("failed to resolve Anthropic API key")?;
+        .context("failed to resolve AI API key")?;
+
+    if ai_cfg.model.trim().is_empty() {
+        return Err(anyhow!(
+            "ai.model is not set — specify a model name in gd.yml (e.g. claude-haiku-4-5-20251001 or gpt-4o-mini)"
+        ));
+    }
 
     let diff_slice = truncate_diff(diff, ai_cfg.max_diff_chars);
 
@@ -84,24 +122,48 @@ pub async fn generate_ai_commit_message(
     );
 
     debug!(
+        provider = ?ai_cfg.provider,
         model = %ai_cfg.model,
+        base_url = %ai_cfg.resolved_base_url(),
         diff_chars = diff_slice.len(),
         "requesting AI commit message"
     );
 
     let client = Client::new();
-    let request = MessagesRequest {
+    let message = match ai_cfg.provider {
+        AiProvider::Anthropic => {
+            call_anthropic(&client, ai_cfg, &api_key, &prompt).await?
+        }
+        AiProvider::OpenAi => {
+            call_openai(&client, ai_cfg, &api_key, &prompt).await?
+        }
+    };
+
+    debug!(message = %message, "AI commit message generated");
+    Ok(message)
+}
+
+// ── Anthropic ─────────────────────────────────────────────────────────────────
+
+async fn call_anthropic(
+    client: &Client,
+    ai_cfg: &AiConfig,
+    api_key: &str,
+    prompt: &str,
+) -> Result<String> {
+    let url = format!("{}/v1/messages", ai_cfg.resolved_base_url());
+    let request = AnthropicRequest {
         model: &ai_cfg.model,
         max_tokens: 256,
-        messages: vec![Message {
+        messages: vec![AnthropicMessage {
             role: "user",
-            content: &prompt,
+            content: prompt,
         }],
     };
 
     let response = client
-        .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", &api_key)
+        .post(&url)
+        .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
         .json(&request)
@@ -112,28 +174,68 @@ pub async fn generate_ai_commit_message(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(anyhow!(
-            "Anthropic API returned {}: {}",
-            status,
-            body.trim()
-        ));
+        return Err(anyhow!("Anthropic API returned {}: {}", status, body.trim()));
     }
 
-    let parsed: MessagesResponse = response
+    let parsed: AnthropicResponse = response
         .json()
         .await
-        .context("failed to parse Anthropic API response as JSON")?;
+        .context("failed to parse Anthropic API response")?;
 
-    let text = parsed
+    parsed
         .content
         .into_iter()
         .find(|b| b.kind == "text")
         .and_then(|b| b.text)
-        .ok_or_else(|| anyhow!("Anthropic API response contained no text block"))?;
+        .map(|t| t.trim().to_string())
+        .ok_or_else(|| anyhow!("Anthropic API response contained no text block"))
+}
 
-    let message = text.trim().to_string();
-    debug!(message = %message, "AI commit message generated");
-    Ok(message)
+// ── OpenAI-compatible ─────────────────────────────────────────────────────────
+
+async fn call_openai(
+    client: &Client,
+    ai_cfg: &AiConfig,
+    api_key: &str,
+    prompt: &str,
+) -> Result<String> {
+    let url = format!("{}/v1/chat/completions", ai_cfg.resolved_base_url());
+    let request = OpenAiRequest {
+        model: &ai_cfg.model,
+        max_tokens: 256,
+        messages: vec![OpenAiMessage {
+            role: "user",
+            content: prompt,
+        }],
+    };
+
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("content-type", "application/json")
+        .json(&request)
+        .send()
+        .await
+        .context("HTTP request to OpenAI API failed")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow!("OpenAI API returned {}: {}", status, body.trim()));
+    }
+
+    let parsed: OpenAiResponse = response
+        .json()
+        .await
+        .context("failed to parse OpenAI API response")?;
+
+    parsed
+        .choices
+        .into_iter()
+        .next()
+        .and_then(|c| c.message.content)
+        .map(|t| t.trim().to_string())
+        .ok_or_else(|| anyhow!("OpenAI API response contained no choices"))
 }
 
 // ============================================================================
@@ -171,8 +273,9 @@ mod tests {
     fn truncate_cuts_at_newline() {
         let diff = "line1\nline2\nline3\n";
         // max_chars = 10 → "line1\nline" → last \n at index 5
+        // slice [..5] excludes the \n itself → "line1"
         let result = truncate_diff(diff, 10);
-        assert_eq!(result, "line1\n");
+        assert_eq!(result, "line1");
     }
 
     #[test]

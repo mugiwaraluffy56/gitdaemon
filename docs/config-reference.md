@@ -14,9 +14,10 @@ Complete reference for every field in `gd.yml`.
 6. [`ignore` — staging exclusions](#6-ignore--staging-exclusions)
 7. [`safety` — safety controls](#7-safety--safety-controls)
 8. [`hooks` — shell hooks](#8-hooks--shell-hooks)
-9. [Full annotated example](#9-full-annotated-example)
-10. [Validation rules](#10-validation-rules)
-11. [Configuration recipes](#11-configuration-recipes)
+9. [`ai` — AI commit messages](#9-ai--ai-commit-messages)
+10. [Full annotated example](#10-full-annotated-example)
+11. [Validation rules](#11-validation-rules)
+12. [Configuration recipes](#12-configuration-recipes)
 
 ---
 
@@ -888,6 +889,65 @@ safety:
   block_secrets: true
 hooks:
   pre_commit: "cargo fmt --check && cargo test --quiet"
+```
+
+---
+
+## 9. `ai` — AI commit messages
+
+When `ai.enabled` is `true`, `gd` calls the Anthropic Messages API to generate
+a conventional commit message from the staged diff instead of using the
+built-in heuristic generator. The heuristic is always used as a fallback if
+the API is unreachable or the key is missing.
+
+See [ai-commit-messages.md](ai-commit-messages.md) for the full guide.
+
+### Fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | `false` | Enable AI-generated commit messages |
+| `api_key` | string | `""` | Key resolution (see below) |
+| `model` | string | `"claude-haiku-4-5-20251001"` | Claude model |
+| `max_diff_chars` | usize | `12000` | Max diff characters sent to the API |
+
+### `api_key` resolution
+
+The key is resolved in this order:
+
+1. If the value starts with `env:`, read the named environment variable:
+   `api_key: "env:MY_KEY"` → reads `$MY_KEY`.
+2. If the value is a non-empty string that does not start with `env:`, use it
+   literally (not recommended for version-controlled files).
+3. If the value is empty (the default), auto-load `.env` from the repo root and
+   then read `ANTHROPIC_API_KEY` from the environment.
+
+### Model options
+
+| Model ID | Speed | Cost | Recommended for |
+|---|---|---|---|
+| `claude-haiku-4-5-20251001` | Fast | Low | Default — everyday commits |
+| `claude-sonnet-4-6` | Medium | Medium | Complex multi-file changes |
+| `claude-opus-4-6` | Slow | High | Large refactors, squash commits |
+
+### Example
+
+```yaml
+ai:
+  enabled: true
+  api_key: ""                        # reads ANTHROPIC_API_KEY from env / .env
+  model: "claude-haiku-4-5-20251001"
+  max_diff_chars: 12000
+```
+
+With `env:` reference:
+
+```yaml
+ai:
+  enabled: true
+  api_key: "env:ANTHROPIC_API_KEY"
+  model: "claude-sonnet-4-6"
+  max_diff_chars: 8000
 ```
 
 ---

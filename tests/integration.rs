@@ -116,7 +116,8 @@ fn scan_detects_aws_access_key() {
 
 #[test]
 fn scan_detects_github_pat() {
-    let line = "+TOKEN=ghp_abcdefghijklmnopqrstuvwxyz123456789";
+    // ghp_ + exactly 36 alphanumeric characters
+    let line = "+TOKEN=ghp_abcdefghijklmnopqrstuvwxyz1234567890";
     assert!(scan_line(line).is_some(), "should detect GitHub PAT");
 }
 
@@ -157,6 +158,7 @@ fn scan_diff_finds_secret_in_added_line() {
 #[tokio::test]
 async fn commit_creates_conventional_message() -> Result<()> {
     let (dir, path) = init_repo()?;
+    fs::create_dir_all(path.join("src"))?;
     stage(&path, "src/lib.rs", "pub fn hello() {}\n")?;
 
     let result = commit(

@@ -1,9 +1,10 @@
 # AI-generated commit messages
 
-`gd` can generate commit messages using [Claude](https://claude.ai) instead of
-its built-in heuristic generator. Both systems produce conventional commit
-messages — the AI path is optional, opt-in, and gracefully falls back to the
-heuristic on any error.
+`gd` can generate commit messages using any LLM instead of its built-in
+heuristic generator. Anthropic Claude, OpenAI, and any OpenAI-compatible
+endpoint (Groq, Together AI, Ollama, LM Studio, …) are all supported.
+Both systems produce conventional commit messages — the AI path is optional,
+opt-in, and gracefully falls back to the heuristic on any error.
 
 ---
 
@@ -27,10 +28,16 @@ generator automatically. **Commits are never blocked by the AI path.**
 
 ## Enabling AI commit messages
 
-### 1. Get an Anthropic API key
+### 1. Choose a provider and get an API key
 
-Sign up at [console.anthropic.com](https://console.anthropic.com) and create
-an API key. The key starts with `sk-ant-`.
+| Provider | Sign up | Key prefix |
+|---|---|---|
+| Anthropic Claude | [console.anthropic.com](https://console.anthropic.com) | `sk-ant-` |
+| OpenAI | [platform.openai.com](https://platform.openai.com) | `sk-` |
+| Groq | [console.groq.com](https://console.groq.com) | `gsk_` |
+| Together AI | [api.together.xyz](https://api.together.xyz) | — |
+| Ollama (local) | `brew install ollama && ollama pull llama3` | none needed |
+| LM Studio (local) | [lmstudio.ai](https://lmstudio.ai) | none needed |
 
 ### 2. Store the key
 
@@ -68,12 +75,42 @@ This reads `MY_ANTHROPIC_KEY` from the environment at runtime.
 
 ### 3. Enable in gd.yml
 
+**Anthropic Claude:**
 ```yaml
 ai:
   enabled: true
-  # api_key: ""   ← leave blank to use ANTHROPIC_API_KEY from env / .env
-  model: "claude-haiku-4-5-20251001"
-  max_diff_chars: 12000
+  provider: anthropic
+  api_key: ""                           # reads ANTHROPIC_API_KEY from env/.env
+  model: "claude-haiku-4-5-20251001"   # or claude-sonnet-4-6, claude-opus-4-6
+```
+
+**OpenAI:**
+```yaml
+ai:
+  enabled: true
+  provider: openai
+  api_key: ""                           # reads OPENAI_API_KEY from env/.env
+  model: "gpt-4o-mini"                  # or gpt-4o
+```
+
+**Groq (fast, free tier available):**
+```yaml
+ai:
+  enabled: true
+  provider: openai
+  api_key: "env:GROQ_API_KEY"
+  model: "llama-3.1-8b-instant"
+  base_url: "https://api.groq.com/openai"
+```
+
+**Ollama (local, no API key needed):**
+```yaml
+ai:
+  enabled: true
+  provider: openai
+  api_key: "local"                      # non-empty but unused
+  model: "llama3"                       # or mistral, phi3, gemma2, etc.
+  base_url: "http://localhost:11434"
 ```
 
 ### 4. Restart the daemon
@@ -89,20 +126,29 @@ gd down && gd up -d
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `ai.enabled` | bool | `false` | Enable AI commit messages |
-| `ai.api_key` | string | `""` | Key, `env:VAR`, or blank (reads `ANTHROPIC_API_KEY`) |
-| `ai.model` | string | `"claude-haiku-4-5-20251001"` | Claude model to use |
+| `ai.provider` | string | `"anthropic"` | `"anthropic"` or `"openai"` |
+| `ai.api_key` | string | `""` | Key, `env:VAR`, or blank (auto-reads provider default env var) |
+| `ai.model` | string | `""` | **Required** — model name; error if blank when enabled |
+| `ai.base_url` | string | `""` | Override endpoint URL (for local servers or compatible APIs) |
 | `ai.max_diff_chars` | usize | `12000` | Max diff chars sent to the API |
 
-### Choosing a model
+### Model examples
 
-| Model | Speed | Cost | Quality | Best for |
-|---|---|---|---|---|
-| `claude-haiku-4-5-20251001` | Fast | Low | Good | Default — most commits |
-| `claude-sonnet-4-6` | Medium | Medium | Better | Complex multi-file changes |
-| `claude-opus-4-6` | Slow | High | Best | Large refactors / squash |
+| Provider | `provider` | `model` | Notes |
+|---|---|---|---|
+| Anthropic Haiku | `anthropic` | `claude-haiku-4-5-20251001` | Fast, cheap |
+| Anthropic Sonnet | `anthropic` | `claude-sonnet-4-6` | Better quality |
+| Anthropic Opus | `anthropic` | `claude-opus-4-6` | Highest quality |
+| OpenAI GPT-4o mini | `openai` | `gpt-4o-mini` | Fast, cheap |
+| OpenAI GPT-4o | `openai` | `gpt-4o` | Better quality |
+| Groq Llama 3.1 8B | `openai` | `llama-3.1-8b-instant` | Very fast, free tier |
+| Groq Mixtral | `openai` | `mixtral-8x7b-32768` | Larger context |
+| Ollama Llama 3 | `openai` | `llama3` | Local, private |
+| Ollama Mistral | `openai` | `mistral` | Local, private |
 
-Haiku is the recommended default. It produces good conventional commit messages
-for typical diffs and completes in under a second.
+Pick the model that fits your latency and cost requirements. For most use
+cases, a fast small model (Haiku, GPT-4o mini, Llama 3.1 8B) is ideal — commit
+message generation is a short task that doesn't need a flagship model.
 
 ---
 

@@ -31,21 +31,48 @@ pub struct Config {
 // AI commit message generation config
 // ============================================================================
 
+/// Which LLM provider to use for AI commit messages.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AiProvider {
+    /// Anthropic Claude — uses the `/v1/messages` API.
+    #[default]
+    Anthropic,
+    /// OpenAI or any OpenAI-compatible endpoint (Groq, Together, Ollama, etc.)
+    /// — uses the `/v1/chat/completions` API.
+    OpenAi,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiConfig {
     /// Enable AI-generated commit messages (uses the heuristic generator when false).
     #[serde(default)]
     pub enabled: bool,
-    /// Anthropic API key.
+    /// LLM provider.
+    /// - `"anthropic"` (default) — Anthropic Claude
+    /// - `"openai"` — OpenAI or any OpenAI-compatible API (Groq, Together, Ollama, …)
+    #[serde(default)]
+    pub provider: AiProvider,
+    /// API key.
     /// - `"env:MY_VAR"` — read from the named environment variable.
     /// - Any other non-empty string — used as the literal key.
-    /// - Empty string (default) — falls back to the `ANTHROPIC_API_KEY` env var
-    ///   or a `.env` file in the repo root.
+    /// - Empty string — auto-reads from the provider's default env var:
+    ///   `ANTHROPIC_API_KEY` for Anthropic, `OPENAI_API_KEY` for OpenAI.
+    ///   Also loads from a `.env` file in the repo root first.
     #[serde(default)]
     pub api_key: String,
-    /// Claude model to use. Defaults to Haiku for low latency and cost.
+    /// Model name to use. **Required when `ai.enabled` is `true`** — the daemon
+    /// will fall back to the heuristic generator with a clear error message if
+    /// this is empty.
+    /// Examples: `claude-haiku-4-5-20251001`, `claude-sonnet-4-6`,
+    ///           `gpt-4o-mini`, `gpt-4o`, `llama3` (Ollama), `mixtral-8x7b` (Groq)
     #[serde(default = "default_ai_model")]
     pub model: String,
+    /// Base URL for the API. Override to point at a local server or a
+    /// compatible third-party endpoint (e.g. `http://localhost:11434` for Ollama).
+    /// Leave empty to use the provider's default endpoint.
+    #[serde(default)]
+    pub base_url: String,
     /// Maximum characters of diff text sent to the API.
     /// Large diffs are truncated at a newline boundary to stay within this limit.
     #[serde(default = "default_max_diff_chars")]
@@ -53,7 +80,9 @@ pub struct AiConfig {
 }
 
 fn default_ai_model() -> String {
-    "claude-haiku-4-5-20251001".to_string()
+    // Empty string — users must set ai.model explicitly.
+    // The daemon errors at commit time with a clear message if left blank.
+    String::new()
 }
 
 fn default_max_diff_chars() -> usize {
@@ -64,17 +93,23 @@ impl Default for AiConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            provider: AiProvider::Anthropic,
             api_key: String::new(),
             model: default_ai_model(),
+            base_url: String::new(),
             max_diff_chars: default_max_diff_chars(),
         }
     }
 }
 
 impl AiConfig {
-    /// Resolve the API key, loading `.env` from `repo_root` first so that
-    /// `ANTHROPIC_API_KEY` set there is available to both `env:` references
-    /// and the bare fallback.
+    /// Resolve the API key, loading `.env` from `repo_root` first.
+    ///
+    /// Resolution order:
+    /// 1. `"env:VAR"` prefix → read the named env var.
+    /// 2. Non-empty literal string → use as-is.
+    /// 3. Empty string → read the provider's default env var
+    ///    (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`).
     pub fn resolve_api_key(&self, repo_root: &Path) -> Result<String> {
         // Load .env from the repo root (silently ignore missing file).
         let _ = dotenvy::from_path(repo_root.join(".env"));
@@ -94,11 +129,29 @@ impl AiConfig {
             return Ok(raw.to_string());
         }
 
-        // Bare fallback: ANTHROPIC_API_KEY in the environment (may have been
-        // loaded from .env above).
-        std::env::var("ANTHROPIC_API_KEY").context(
-            "ai.api_key is not set and ANTHROPIC_API_KEY is not present in the environment or .env",
-        )
+        // Bare fallback — use the provider's conventional env var name.
+        let default_var = match self.provider {
+            AiProvider::Anthropic => "ANTHROPIC_API_KEY",
+            AiProvider::OpenAi => "OPENAI_API_KEY",
+        };
+
+        std::env::var(default_var).with_context(|| {
+            format!(
+                "ai.api_key is not set and {} is not present in the environment or .env",
+                default_var
+            )
+        })
+    }
+
+    /// Return the base URL for this provider, respecting any `base_url` override.
+    pub fn resolved_base_url(&self) -> &str {
+        if !self.base_url.is_empty() {
+            return self.base_url.as_str();
+        }
+        match self.provider {
+            AiProvider::Anthropic => "https://api.anthropic.com",
+            AiProvider::OpenAi => "https://api.openai.com",
+        }
     }
 }
 
@@ -455,21 +508,19 @@ hooks:
   # Shell command run when a conflict is detected ($FG_BRANCH, $FG_ERROR available)
   on_conflict: ""
 
-# AI-generated commit messages (optional — requires an Anthropic API key)
+# AI-generated commit messages
+# Supports any LLM: Anthropic, OpenAI, Groq, Together AI, Ollama, LM Studio, etc.
+# Set enabled: true and fill in the fields below, then restart the daemon.
 ai:
-  # Set to true to enable AI commit messages. Falls back to the heuristic
-  # generator automatically when disabled or when the API is unreachable.
-  enabled: false
-  # How to supply your Anthropic API key (choose one):
-  #   api_key: "env:ANTHROPIC_API_KEY"   ← read from an env var
-  #   api_key: "sk-ant-..."              ← literal key (not recommended in VCS)
-  #   api_key: ""                        ← auto-read ANTHROPIC_API_KEY or .env
-  api_key: ""
-  # Claude model. Haiku is fast and cheap for short diff summaries.
-  # Other options: claude-sonnet-4-6, claude-opus-4-6
-  model: "claude-haiku-4-5-20251001"
-  # Maximum diff characters sent to the API. Larger diffs are truncated.
-  max_diff_chars: 12000
+  enabled: false          # off by default — enable when you have an API key ready
+  provider: anthropic     # "anthropic" | "openai" (openai covers Groq, Ollama, etc.)
+  api_key: ""             # "env:MY_VAR", literal key, or "" to use default env var
+                          # defaults: ANTHROPIC_API_KEY (anthropic) / OPENAI_API_KEY (openai)
+  model: ""               # REQUIRED when enabled — set the exact model name
+                          # e.g. claude-haiku-4-5-20251001, gpt-4o-mini, llama3
+  base_url: ""            # optional — leave blank for provider default
+                          # e.g. "http://localhost:11434" for Ollama
+  max_diff_chars: 12000   # max diff chars sent to the API (larger diffs are truncated)
 "#
         .to_string()
     }
