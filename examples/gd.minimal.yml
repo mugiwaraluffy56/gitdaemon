@@ -1,0 +1,3 @@
+# Minimal gd.yml — sensible defaults, nothing custom.
+# Created with: gd init
+version: 1

@@ -1,0 +1,134 @@
+# Full gd.yml — every option shown with inline documentation.
+# Copy to your repo root as gd.yml and edit as needed.
+version: 1
+
+repo:
+  # Stage working-tree changes automatically when files are modified.
+  auto_stage: true
+
+  # Fetch from all remotes in the background.
+  auto_fetch: true
+
+  # Seconds between background fetches.
+  fetch_interval: 60
+
+  # After every fetch, fast-forward base_branch to origin/<base_branch>
+  # and rebase the current working branch onto it (when tree is clean).
+  auto_sync_base: true
+
+  # The long-lived branch to keep updated (typically main or master).
+  base_branch: main
+
+  # Rebase the current branch onto base_branch after it advances.
+  # Set to false to only fast-forward base_branch without rebasing.
+  rebase_on_sync: true
+
+commit:
+  # "time"         — commit every `interval` seconds when changes exist.
+  # "change_count" — commit once `change_threshold` files have accumulated.
+  strategy: time
+
+  # Seconds between auto-commits (time strategy).
+  interval: 120
+
+  # Files accumulated before committing (change_count strategy).
+  change_threshold: 10
+
+  # Commit message template.
+  # {summary}   — conventional commit line generated from the diff
+  # {count}     — number of changed files
+  # {branch}    — current branch name
+  # {timestamp} — ISO-8601 UTC timestamp
+  message: "{summary}"
+
+  # Commit files from different top-level directories separately.
+  # e.g. changes to src/git/ and src/daemon/ become two commits.
+  group_by_directory: false
+
+push:
+  # "batch" — queue commits and push all together on each push tick.
+  strategy: batch
+
+  # Seconds between auto-pushes.
+  interval: 300
+
+  # Branch to push to.
+  branch: main
+
+  # Never auto-push to these branches. Use `gd push` to push manually.
+  protected_branches:
+    - main
+    - master
+    - develop
+
+# Files and directories excluded from auto-staging (gitignore-style globs).
+ignore:
+  - "*.log"
+  - "*.tmp"
+  - "node_modules/"
+  - ".env"
+  - ".env.local"
+  - "dist/"
+  - "build/"
+  - ".next/"
+  - "__pycache__/"
+  - "*.pyc"
+  - ".DS_Store"
+
+safety:
+  # Prompt before the very first push in a daemon session.
+  confirm_first: false
+
+  # Scan diffs for secrets (API keys, tokens, private keys) before every push.
+  # A match blocks the push. The commit is kept locally.
+  block_secrets: true
+
+hooks:
+  # Shell command run before each commit.
+  # Non-zero exit aborts the commit; staged changes remain for next tick.
+  # Examples:
+  #   pre_commit: "cargo fmt --check"
+  #   pre_commit: "npm run lint --silent"
+  #   pre_commit: "ruff check . --quiet"
+  pre_commit: ""
+
+  # Shell command run after a successful commit.
+  # Non-zero exit is logged as a warning; the commit is kept.
+  # Examples:
+  #   post_commit: "cargo test --quiet 2>&1 | tail -5"
+  #   post_commit: "osascript -e 'display notification \"committed\" with title \"gd\"'"
+  post_commit: ""
+
+  # Shell command run after a successful push.
+  # Environment: $FG_BRANCH, $FG_COMMITS
+  # Examples:
+  #   on_push_success: "osascript -e 'display notification \"pushed $FG_COMMITS commit(s)\" with title \"gd\"'"
+  on_push_success: ""
+
+  # Shell command run when a conflict or rebase failure is detected.
+  # Push is paused automatically. Run `gd resume` after resolving.
+  # Environment: $FG_BRANCH, $FG_ERROR
+  # Examples:
+  #   on_conflict: "notify-send 'gd conflict' \"$FG_ERROR on $FG_BRANCH\""
+  on_conflict: ""
+
+# AI-generated commit messages (optional — requires an Anthropic API key).
+ai:
+  # Set to true to use Claude to generate commit messages from the diff.
+  # Falls back to the heuristic generator if the API is unreachable.
+  enabled: false
+
+  # How to supply your Anthropic API key:
+  #   api_key: ""                        — read ANTHROPIC_API_KEY from env / .env
+  #   api_key: "env:MY_VAR"              — read the named env var
+  #   api_key: "sk-ant-..."              — literal key (avoid committing this)
+  api_key: ""
+
+  # Claude model. Haiku is fast and cheap; Sonnet produces better messages
+  # for complex multi-file changes.
+  # Options: claude-haiku-4-5-20251001, claude-sonnet-4-6, claude-opus-4-6
+  model: "claude-haiku-4-5-20251001"
+
+  # Maximum diff characters sent to the API. Larger diffs are truncated
+  # at a newline boundary. Reduce if you hit token limits.
+  max_diff_chars: 12000
